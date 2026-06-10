@@ -1,0 +1,6 @@
+* { -webkit-tap-highlight-color: transparent; box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; padding: 0; }
+body { overscroll-behavior: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+.mono { font-variant-numeric: tabular-nums; }
