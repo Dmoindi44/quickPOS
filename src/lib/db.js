@@ -85,7 +85,7 @@ export const deleteProduct = async (id) => {
 
 /* Sales */
 export const getSales = async (shopId, from, to) => {
-  let query = supabase.from("sales").select("*").eq("shop_id", shopId).order("ts", { ascending: false });
+  let query = supabase.from("sales").select("*").eq("shop_id", shopId).order("ts", { ascending: false }).limit(200);
   if (from) query = query.gte("ts", from);
   if (to)   query = query.lte("ts", to);
   const { data, error } = await query;

@@ -12,6 +12,25 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 
 /* ── Constants ── */
+
+/* ── Image Compression ── */
+const compressImage = (file, maxWidth=800, quality=0.75) => new Promise((resolve) => {
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      const scale  = Math.min(1, maxWidth / img.width);
+      canvas.width  = img.width  * scale;
+      canvas.height = img.height * scale;
+      canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+      canvas.toBlob((blob) => resolve(new File([blob], file.name, { type:"image/jpeg" })), "image/jpeg", quality);
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+});
+
 /* ── Offline Sale Queue ── */
 const QUEUE_KEY = "quickpos_offline_queue";
 
@@ -135,6 +154,10 @@ export default function App() {
         else setScreen("setup");
       } else {
         setUser(null); setShop(null); setRole(null); setScreen("login");
+        // Session expired — clear any stale state
+        if (_e === "SIGNED_OUT" || _e === "TOKEN_REFRESHED") {
+          setScreen("login");
+        }
       }
     });
     return () => subscription.unsubscribe();
@@ -158,14 +181,16 @@ function Splash() {
   return (
     <div style={{
       minHeight:"100vh",
-      minHeight:"100dvh", /* dynamic viewport on mobile — avoids browser-chrome gap */
-      background:"linear-gradient(160deg,#0f172a,#1e1b4b)",
+      minHeight:"100dvh",
+      background:"url(/bg.jpg) center/cover no-repeat fixed #0f172a",
       display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center",
       paddingTop:"env(safe-area-inset-top)",
       paddingBottom:"env(safe-area-inset-bottom)",
+      animation:"fadeIn 0.3s ease",
       ...S
     }}>
-      <div style={{width:"88px", height:"88px", background:"linear-gradient(135deg,#4f46e5,#7c3aed)", borderRadius:"28px", display:"flex", alignItems:"center", justifyContent:"center", fontSize:"44px", marginBottom:"20px", boxShadow:"0 8px 32px rgba(79,70,229,0.45)"}}>🛒</div>
+      <style>{`@keyframes fadeIn{from{opacity:0}to{opacity:1}}`}</style>
+      <img src="/icons/icon-192.png" alt="QuickPOS" style={{width:"88px", height:"88px", borderRadius:"28px", marginBottom:"20px", boxShadow:"0 8px 32px rgba(79,70,229,0.45)"}} />
       <h1 style={{color:"#f1f5f9", fontSize:"32px", fontWeight:"800", margin:"0 0 6px", letterSpacing:"-0.5px"}}>QuickPOS</h1>
       <p style={{color:"#818cf8", fontSize:"11px", fontWeight:"700", letterSpacing:"3px", textTransform:"uppercase", margin:"0"}}>Freedom From Paperwork</p>
       <div style={{marginTop:"48px", width:"32px", height:"32px", border:"3px solid #4f46e5", borderTopColor:"transparent", borderRadius:"50%", animation:"spin 0.8s linear infinite"}} />
@@ -194,11 +219,11 @@ function LoginScreen() {
   };
 
   return (
-    <div style={{minHeight:"100vh", background:"linear-gradient(160deg,#0f172a,#1e1b4b)", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"24px", ...S}}>
+    <div style={{minHeight:"100vh", background:"url(/bg.jpg) center/cover no-repeat fixed #0f172a", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"24px", ...S}}>
       
       <div style={{width:"100%", maxWidth:"360px"}}>
         <div style={{textAlign:"center", marginBottom:"28px"}}>
-          <div style={{width:"72px", height:"72px", background:"linear-gradient(135deg,#4f46e5,#7c3aed)", borderRadius:"20px", display:"flex", alignItems:"center", justifyContent:"center", fontSize:"32px", margin:"0 auto 14px"}}>🛒</div>
+          <img src="/icons/icon-192.png" alt="QuickPOS" style={{width:"72px", height:"72px", borderRadius:"20px", margin:"0 auto 14px", display:"block"}} />
           <h1 style={{color:"#f1f5f9", fontSize:"24px", fontWeight:"800", margin:"0 0 3px", letterSpacing:"-0.3px"}}>QuickPOS</h1>
           <p style={{color:"#818cf8", fontSize:"10px", fontWeight:"700", letterSpacing:"2.5px", textTransform:"uppercase", margin:"0 0 6px"}}>Freedom From Paperwork</p>
           <p style={{color:"#64748b", fontSize:"13px", margin:"0"}}>{mode==="login"?"Sign in to your shop":"Create your account"}</p>
@@ -257,12 +282,13 @@ function SetupScreen({ onDone }) {
   };
 
   return (
-    <div style={{minHeight:"100vh", background:"linear-gradient(160deg,#0f172a,#1e1b4b)", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"24px", ...S}}>
+    <div style={{minHeight:"100vh", background:"url(/bg.jpg) center/cover no-repeat fixed #0f172a", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"24px", ...S}}>
       
       <div style={{width:"100%", maxWidth:"360px"}}>
         <div style={{textAlign:"center", marginBottom:"28px"}}>
-          <div style={{width:"72px", height:"72px", background:"linear-gradient(135deg,#4f46e5,#7c3aed)", borderRadius:"20px", display:"flex", alignItems:"center", justifyContent:"center", fontSize:"32px", margin:"0 auto 14px"}}>🛒</div>
-          <h1 style={{color:"#f1f5f9", fontSize:"24px", fontWeight:"800", margin:"0 0 4px"}}>Set Up Your Shop</h1>
+          <img src="/icons/icon-192.png" alt="QuickPOS" style={{width:"72px", height:"72px", borderRadius:"20px", margin:"0 auto 14px", display:"block"}} />
+          <h1 style={{color:"#f1f5f9", fontSize:"24px", fontWeight:"800", margin:"0 0 3px"}}>QuickPOS</h1>
+          <p style={{color:"#818cf8", fontSize:"10px", fontWeight:"700", letterSpacing:"2.5px", textTransform:"uppercase", margin:"0 0 6px"}}>Freedom From Paperwork</p>
           <p style={{color:"#64748b", fontSize:"13px", margin:"0"}}>
             {step==="shop"?"Enter your shop name":step==="pin"?"Create owner PIN":"Confirm owner PIN"}
           </p>
@@ -316,10 +342,11 @@ function PINScreen({ shop, onSuccess }) {
   };
 
   if (mode==="choose") return (
-    <div style={{minHeight:"100vh", background:"linear-gradient(160deg,#0f172a,#1e1b4b)", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"24px", ...S}}>
+    <div style={{minHeight:"100vh", background:"url(/bg.jpg) center/cover no-repeat fixed #0f172a", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"24px", ...S}}>
       
-      <div style={{width:"72px", height:"72px", background:"linear-gradient(135deg,#4f46e5,#7c3aed)", borderRadius:"20px", display:"flex", alignItems:"center", justifyContent:"center", fontSize:"32px", marginBottom:"16px"}}>🛒</div>
-      <h1 style={{color:"#f1f5f9", fontSize:"22px", fontWeight:"800", margin:"0 0 4px"}}>{shop.name}</h1>
+      <img src="/icons/icon-192.png" alt="QuickPOS" style={{width:"72px", height:"72px", borderRadius:"20px", marginBottom:"16px"}} />
+      <h1 style={{color:"#f1f5f9", fontSize:"22px", fontWeight:"800", margin:"0 0 2px"}}>{shop.name}</h1>
+      <p style={{color:"#818cf8", fontSize:"10px", fontWeight:"700", letterSpacing:"2.5px", textTransform:"uppercase", margin:"0 0 4px"}}>Freedom From Paperwork</p>
       <p style={{color:"#64748b", fontSize:"13px", margin:"0 0 32px"}}>Who are you?</p>
       <div style={{display:"flex", flexDirection:"column", gap:"12px", width:"100%", maxWidth:"280px"}}>
         <button onClick={()=>setMode("owner")}
@@ -337,7 +364,7 @@ function PINScreen({ shop, onSuccess }) {
   );
 
   return (
-    <div style={{minHeight:"100vh", background:"linear-gradient(160deg,#0f172a,#1e1b4b)", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"24px", ...S}}>
+    <div style={{minHeight:"100vh", background:"url(/bg.jpg) center/cover no-repeat fixed #0f172a", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"24px", ...S}}>
       
       <p style={{color:"#f1f5f9", fontSize:"18px", fontWeight:"700", margin:"0 0 4px"}}>{mode==="owner"?"👤 Owner":"🧑‍💼 Staff"}</p>
       <p style={{color:"#64748b", fontSize:"13px", margin:"0 0 24px"}}>Enter your PIN</p>
@@ -387,7 +414,7 @@ function Toast({ message, type="ok" }) {
   return (
     <div style={{position:"fixed", bottom:"90px", left:"50%", transform:"translateX(-50%)", background:type==="err"?"#7f1d1d":"#1e3a5f",
       color:type==="err"?"#fca5a5":"#93c5fd", padding:"10px 20px", borderRadius:"100px", fontSize:"13px", fontWeight:"600",
-      zIndex:9999, pointerEvents:"none", whiteSpace:"nowrap", ...S}}>
+      zIndex:300, pointerEvents:"none", whiteSpace:"nowrap", ...S}}>
       {message}
     </div>
   );
@@ -523,11 +550,12 @@ function POSApp({ shop, role, user, onLock, onShopUpdate }) {
   const handleAddProduct = async (form, photoFile) => {
     let photo_url = null;
     if (photoFile) {
-      const ext  = photoFile.name.split(".").pop();
+      const compressed = await compressImage(photoFile);
+      const ext  = "jpg";
       const path = `${shop.id}/${Date.now()}.${ext}`;
       const { error: upErr } = await supabase.storage
         .from("product-images")
-        .upload(path, photoFile, { upsert: true });
+        .upload(path, compressed, { upsert: true });
       if (upErr) throw upErr;
       const { data: urlData } = supabase.storage
         .from("product-images")
@@ -537,6 +565,7 @@ function POSApp({ shop, role, user, onLock, onShopUpdate }) {
     const p = await addProduct(shop.id, { ...form, photo_url });
     setProducts(prev=>[...prev, p]);
     setOverlay(null);
+    document.body.classList.remove("checkout-open");
     showToast("Product added");
   };
 
@@ -566,8 +595,8 @@ function POSApp({ shop, role, user, onLock, onShopUpdate }) {
 
   return (
     /* Outer shell: full viewport, dark bg visible on wide screens */
-    <div style={{minHeight:"100dvh", background:"#0a0f1e", display:"flex", alignItems:"stretch", justifyContent:"center", ...S}}>
-    <div style={{width:"100%", maxWidth:"100%", height:"100dvh", display:"flex", flexDirection:"column", background:"#0f172a", color:"#f1f5f9", position:"relative"}}>
+    <div style={{minHeight:"100dvh", background:"url(/bg.jpg) center/cover no-repeat fixed #0a0f1e", display:"flex", alignItems:"stretch", justifyContent:"center", ...S}}>
+    <div style={{width:"100%", maxWidth:"100%", height:"100dvh", display:"flex", flexDirection:"column", background:"transparent", color:"#f1f5f9", position:"relative"}}>
       <style>{`
         * { box-sizing: border-box; margin: 0; padding: 0; }
         .no-scrollbar::-webkit-scrollbar { display: none; }
@@ -575,6 +604,8 @@ function POSApp({ shop, role, user, onLock, onShopUpdate }) {
         .mono { font-variant-numeric: tabular-nums; }
         button { -webkit-tap-highlight-color: transparent; }
         @media (prefers-reduced-motion: reduce) { * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; } }
+        @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+        .screen-fade{animation:fadeIn 0.25s ease;}
         button { min-height: 36px; }
         /* Desktop: 3 column product grid */
         @media (min-width: 768px) { .product-grid { grid-template-columns: repeat(4,1fr) !important; } }
@@ -583,7 +614,7 @@ function POSApp({ shop, role, user, onLock, onShopUpdate }) {
       <Toast message={toast.msg} type={toast.type} />
 
       {/* Header */}
-      <div style={{background:"#0f172a", borderBottom:"1px solid #1e293b", padding:"12px 16px", display:"flex", alignItems:"center", justifyContent:"space-between", flexShrink:0}}>
+      <div style={{background:"rgba(10,15,30,0.75)", borderBottom:"1px solid rgba(255,255,255,0.08)", padding:"12px 16px", display:"flex", alignItems:"center", justifyContent:"space-between", flexShrink:0}}>
         <div>
           <p style={{fontSize:"16px", fontWeight:"800", color:"#f1f5f9"}}>{shop.name}</p>
           <p style={{fontSize:"11px", color:role==="owner"?"#818cf8":"#34d399", fontWeight:"600", textTransform:"uppercase", letterSpacing:"0.5px"}}>
@@ -607,13 +638,13 @@ function POSApp({ shop, role, user, onLock, onShopUpdate }) {
       {/* Main content */}
       <main style={{flex:1, overflow:"hidden", display:"flex", flexDirection:"column"}}>
         {view==="pos"       && <POSView products={products} cart={cart} setCart={setCart} onAddToCart={handleAddToCart} onCheckout={handleCheckout} showToast={showToast} categories={categories} lastSale={lastSale} onShareWhatsApp={shareWhatsApp} shop={shop} />}
-        {view==="inventory" && role==="owner" && <InventoryView products={products} setProducts={setProducts} onAdd={()=>setOverlay("addProduct")} onDelete={handleDeleteProduct} updateProduct={updateProduct} showToast={showToast} categories={categories} />}
+        {view==="inventory" && role==="owner" && <InventoryView products={products} setProducts={setProducts} onAdd={()=>{setOverlay("addProduct");document.body.classList.add("checkout-open");}} onDelete={handleDeleteProduct} updateProduct={updateProduct} showToast={showToast} categories={categories} />}
         {view==="reports"   && role==="owner" && <ReportsView sales={sales} expenses={expenses} todaySales={todaySales} todayRev={todayRev} shopName={shop.name} onAddExpense={handleAddExpense} onDeleteExpense={handleDeleteExpense} />}
         {view==="settings"  && role==="owner" && <SettingsView shop={shop} onShopUpdate={onShopUpdate} showToast={showToast} onSignOut={()=>{ signOut(); }} categories={categories} setCategories={setCategories} />}
       </main>
 
       {/* Nav */}
-      <nav style={{background:"#0f172a", borderTop:"1px solid #1e293b", display:"flex", padding:"8px 0 20px", flexShrink:0}}>
+      <nav style={{background:"rgba(10,15,30,0.75)", borderTop:"1px solid rgba(255,255,255,0.08)", display:"flex", padding:"8px 0 20px", flexShrink:0, position:"relative", zIndex:50}}>
         {[
           ["pos","🛒","POS"],
           ...(role==="owner"?[["inventory","📦","Stock"],["reports","📊","Reports"],["settings","⚙️","Settings"]]:[]),
@@ -625,7 +656,7 @@ function POSApp({ shop, role, user, onLock, onShopUpdate }) {
           </button>
         ))}
         {role==="staff" && (
-          <button onClick={()=>setOverlay("addProduct")} style={{flex:1, background:"none", border:"none", cursor:"pointer", padding:"6px 0", fontFamily:"inherit",
+          <button onClick={()=>{setOverlay("addProduct");document.body.classList.add("checkout-open");}} style={{flex:1, background:"none", border:"none", cursor:"pointer", padding:"6px 0", fontFamily:"inherit",
             display:"flex", flexDirection:"column", alignItems:"center", gap:"2px"}}>
             <span style={{fontSize:"20px"}}>＋</span>
             <span style={{fontSize:"10px", fontWeight:"600", color:"#475569", textTransform:"uppercase", letterSpacing:"0.5px"}}>Add</span>
@@ -633,7 +664,7 @@ function POSApp({ shop, role, user, onLock, onShopUpdate }) {
         )}
       </nav>
 
-      {overlay==="addProduct" && <AddProductOverlay onSave={handleAddProduct} onClose={()=>setOverlay(null)} categories={categories} />}
+      {overlay==="addProduct" && <AddProductOverlay onSave={handleAddProduct} onClose={()=>{setOverlay(null);document.body.classList.remove("checkout-open");}} categories={categories} />}
     </div>
     </div>
   );
@@ -649,6 +680,7 @@ function POSView({ products, cart, setCart, onAddToCart, onCheckout, showToast, 
   const [method,      setMethod     ] = useState("cash");
   const [tendered,    setTendered   ] = useState("");
   const [showReceipt, setShowReceipt] = useState(false);
+  const [confirming,  setConfirming ] = useState(false);
 
   const shopCats = ["All", ...(categories || DEFAULT_CATEGORIES)];
   const filtered = products.filter(p => {
@@ -683,10 +715,18 @@ function POSView({ products, cart, setCart, onAddToCart, onCheckout, showToast, 
 
   const handleCheckout = async () => {
     if (cart.length===0) return;
+    if (confirming) return;
     if (method==="cash" && parseFloat(tendered)<total) { showToast("Insufficient amount","err"); return; }
-    await onCheckout(method, method==="cash"?parseFloat(tendered):0);
-    setCheckout(false); setTendered("");
-    setShowReceipt(true);
+    setConfirming(true);
+    try {
+      await onCheckout(method, method==="cash"?parseFloat(tendered):0);
+      setCheckout(false); setTendered("");
+      document.body.classList.remove("checkout-open");
+      document.body.classList.add("checkout-open");
+      setShowReceipt(true);
+    } finally {
+      setConfirming(false);
+    }
   };
 
   return (
@@ -712,7 +752,7 @@ function POSView({ products, cart, setCart, onAddToCart, onCheckout, showToast, 
       <div style={{flex:1, overflowY:"auto", padding:"0 16px 10px", display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:"10px", alignContent:"start"}} className="no-scrollbar product-grid">
         {filtered.map(p=>(
           <button key={p.id} onClick={()=>onAddToCart(p)}
-            style={{background:"#1e293b", border:"1px solid #334155", borderRadius:"16px", padding:"14px 12px", cursor:"pointer", textAlign:"left", fontFamily:"inherit", position:"relative"}}>
+            style={{background:"rgba(15,23,42,0.75)", border:"1px solid rgba(255,255,255,0.08)", borderRadius:"16px", padding:"14px 12px", cursor:"pointer", textAlign:"left", fontFamily:"inherit", position:"relative"}}>
             {p.stock===0 && <span style={{position:"absolute", top:"8px", right:"8px", background:"#7f1d1d", color:"#fca5a5", fontSize:"9px", fontWeight:"700", padding:"2px 6px", borderRadius:"100px"}}>OUT</span>}
             {p.photo_url
               ? <img src={p.photo_url} alt={p.name} style={{width:"100%", height:"72px", objectFit:"cover", borderRadius:"10px", marginBottom:"8px"}} />
@@ -728,7 +768,7 @@ function POSView({ products, cart, setCart, onAddToCart, onCheckout, showToast, 
       {/* Cart bar */}
 
       {cart.length>0 && (
-        <div style={{background:"#1e293b", borderTop:"1px solid #334155", padding:"12px 16px", flexShrink:0}}>
+        <div style={{background:"rgba(15,23,42,0.92)", borderTop:"1px solid rgba(255,255,255,0.08)", padding:"12px 16px", flexShrink:0}}>
           {/* Cart items */}
           <div style={{maxHeight:"120px", overflowY:"auto", marginBottom:"10px"}} className="no-scrollbar">
             {cart.map(item=>(
@@ -775,7 +815,7 @@ function POSView({ products, cart, setCart, onAddToCart, onCheckout, showToast, 
               <p style={{fontSize:"11px", color:"#64748b"}}>Total ({cartCount} items)</p>
               <p style={{fontSize:"20px", fontWeight:"800", color:"#f1f5f9"}}>{fmt(total)}</p>
             </div>
-            <button onClick={()=>setCheckout(true)}
+            <button onClick={()=>{setCheckout(true);document.body.classList.add("checkout-open");}}
               style={{background:"linear-gradient(135deg,#4f46e5,#7c3aed)", border:"none", borderRadius:"12px", padding:"12px 24px", color:"white", fontSize:"15px", fontWeight:"700", cursor:"pointer", fontFamily:"inherit"}}>
               Checkout
             </button>
@@ -785,8 +825,8 @@ function POSView({ products, cart, setCart, onAddToCart, onCheckout, showToast, 
 
       {/* Checkout overlay */}
       {showReceipt && lastSale && (
-        <div style={{position:"fixed", inset:0, background:"rgba(0,0,0,0.8)", display:"flex", alignItems:"flex-end", zIndex:60}}>
-          <div style={{background:"#1e293b", borderRadius:"24px 24px 0 0", width:"100%", padding:"20px", maxHeight:"85vh", overflowY:"auto", fontFamily:"inherit"}} className="no-scrollbar">
+        <div style={{position:"fixed", inset:0, background:"rgba(0,0,0,0.8)", display:"flex", alignItems:"flex-end", zIndex:200}}>
+          <div style={{background:"rgba(15,23,42,0.92)", borderRadius:"24px 24px 0 0", width:"100%", padding:"20px", maxHeight:"85vh", overflowY:"auto", fontFamily:"inherit"}} className="no-scrollbar">
             <div style={{display:"flex", justifyContent:"center", marginBottom:"16px"}}>
               <div style={{width:"40px", height:"4px", background:"#334155", borderRadius:"2px"}} />
             </div>
@@ -847,7 +887,7 @@ function POSView({ products, cart, setCart, onAddToCart, onCheckout, showToast, 
                 style={{flex:1, padding:"13px", borderRadius:"12px", background:"#14532d", border:"none", color:"#86efac", fontSize:"13px", fontWeight:"700", cursor:"pointer", fontFamily:"inherit", display:"flex", flexDirection:"column", alignItems:"center", gap:"3px"}}>
                 <span style={{fontSize:"18px"}}>📲</span>Share
               </button>
-              <button onClick={()=>setShowReceipt(false)}
+              <button onClick={()=>{setShowReceipt(false);document.body.classList.remove("checkout-open");}}
                 style={{flex:1, padding:"13px", borderRadius:"12px", background:"#4f46e5", border:"none", color:"white", fontSize:"13px", fontWeight:"700", cursor:"pointer", fontFamily:"inherit", display:"flex", flexDirection:"column", alignItems:"center", gap:"3px"}}>
                 <span style={{fontSize:"18px"}}>✓</span>Done
               </button>
@@ -857,48 +897,62 @@ function POSView({ products, cart, setCart, onAddToCart, onCheckout, showToast, 
       )}
 
       {checkout && (
-        <div style={{position:"fixed", inset:0, background:"rgba(0,0,0,0.7)", display:"flex", alignItems:"flex-end", zIndex:50}}>
-          <div style={{background:"#1e293b", borderRadius:"24px 24px 0 0", width:"100%", padding:"20px", ...S}}>
-            <div style={{display:"flex", justifyContent:"center", marginBottom:"16px"}}>
-              <div style={{width:"40px", height:"4px", background:"#334155", borderRadius:"2px"}} />
+        <div style={{position:"fixed", inset:0, zIndex:300, background:"url(/bg.jpg) center/cover no-repeat fixed #0a0f1e", display:"flex", flexDirection:"column", fontFamily:"'DM Sans',system-ui,sans-serif"}}>
+          <div style={{background:"rgba(10,15,30,0.85)", padding:"16px 20px", display:"flex", alignItems:"center", gap:"12px", borderBottom:"1px solid rgba(255,255,255,0.08)", flexShrink:0}}>
+            <button onClick={()=>{setCheckout(false);setTendered("");document.body.classList.remove("checkout-open");}}
+              style={{background:"rgba(255,255,255,0.1)", border:"none", borderRadius:"10px", padding:"8px 14px", color:"#f1f5f9", fontSize:"14px", fontWeight:"700", cursor:"pointer", fontFamily:"inherit"}}>
+              ← Back
+            </button>
+            <p style={{fontSize:"18px", fontWeight:"800", color:"#f1f5f9", flex:1, margin:0}}>Checkout</p>
+            <p style={{fontSize:"20px", fontWeight:"800", color:"#818cf8", margin:0}}>{fmt(total)}</p>
+          </div>
+          <div style={{flex:1, overflowY:"auto", padding:"20px"}} className="no-scrollbar">
+            <div style={{background:"rgba(15,23,42,0.8)", borderRadius:"16px", padding:"16px", marginBottom:"16px"}}>
+              <p style={{fontSize:"12px", fontWeight:"700", color:"#64748b", marginBottom:"12px", textTransform:"uppercase", letterSpacing:"0.5px", margin:"0 0 12px"}}>Order Summary</p>
+              {cart.map(item=>(
+                <div key={item.pid} style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"10px"}}>
+                  <div style={{flex:1}}>
+                    <p style={{fontSize:"14px", fontWeight:"600", color:"#e2e8f0", margin:"0 0 2px"}}>{item.name}</p>
+                    <p style={{fontSize:"12px", color:"#64748b", margin:0}}>x{item.qty}{item.unit?" "+item.unit:""} @ {fmt(item.price)}</p>
+                  </div>
+                  <p style={{fontSize:"14px", fontWeight:"700", color:"#818cf8", margin:0}}>{fmt(item.price*item.qty)}</p>
+                </div>
+              ))}
+              <div style={{borderTop:"1px solid rgba(255,255,255,0.08)", paddingTop:"12px", marginTop:"4px", display:"flex", justifyContent:"space-between"}}>
+                <p style={{fontSize:"16px", fontWeight:"800", color:"#f1f5f9", margin:0}}>Total</p>
+                <p style={{fontSize:"16px", fontWeight:"800", color:"#4f46e5", margin:0}}>{fmt(total)}</p>
+              </div>
             </div>
-            <p style={{fontSize:"18px", fontWeight:"800", marginBottom:"16px"}}>Checkout</p>
-            <p style={{fontSize:"24px", fontWeight:"800", color:"#818cf8", marginBottom:"16px"}}>{fmt(total)}</p>
-
-            {/* Payment method */}
+            <p style={{fontSize:"12px", fontWeight:"700", color:"#64748b", marginBottom:"10px", textTransform:"uppercase", letterSpacing:"0.5px"}}>Payment Method</p>
             <div style={{display:"flex", gap:"10px", marginBottom:"16px"}}>
               {[["cash","💵 Cash"],["card","💳 M-Pesa"]].map(([m,label])=>(
                 <button key={m} onClick={()=>setMethod(m)}
-                  style={{flex:1, padding:"12px", borderRadius:"12px", border:`2px solid ${method===m?"#4f46e5":"#334155"}`,
-                    background:method===m?"rgba(79,70,229,0.2)":"transparent", color:method===m?"#818cf8":"#64748b",
-                    fontSize:"14px", fontWeight:"700", cursor:"pointer", fontFamily:"inherit"}}>
+                  style={{flex:1, padding:"16px", borderRadius:"14px", border:`2px solid ${method===m?"#4f46e5":"rgba(255,255,255,0.1)"}`,
+                    background:method===m?"rgba(79,70,229,0.3)":"rgba(15,23,42,0.6)", color:method===m?"#a5b4fc":"#64748b",
+                    fontSize:"15px", fontWeight:"700", cursor:"pointer", fontFamily:"inherit"}}>
                   {label}
                 </button>
               ))}
             </div>
-
-            {/* Cash tendered */}
             {method==="cash" && (
               <div style={{marginBottom:"16px"}}>
-                <input type="number" value={tendered} onChange={e=>setTendered(e.target.value)} placeholder="Amount tendered"
-                  style={{width:"100%", background:"#0f172a", border:"1.5px solid #334155", borderRadius:"12px", padding:"12px 16px", color:"#f1f5f9", fontSize:"16px", outline:"none", fontFamily:"inherit"}} />
+                <p style={{fontSize:"12px", fontWeight:"700", color:"#64748b", marginBottom:"8px", textTransform:"uppercase", letterSpacing:"0.5px"}}>Amount Tendered</p>
+                <input type="number" value={tendered} onChange={e=>setTendered(e.target.value)} placeholder="Enter amount"
+                  style={{width:"100%", background:"rgba(15,23,42,0.8)", border:"1.5px solid rgba(255,255,255,0.1)", borderRadius:"14px", padding:"16px", color:"#f1f5f9", fontSize:"20px", fontWeight:"700", outline:"none", fontFamily:"inherit"}} />
                 {parseFloat(tendered)>=total && (
-                  <p style={{color:"#34d399", fontSize:"14px", fontWeight:"700", marginTop:"8px"}}>Change: {fmt(change)}</p>
+                  <div style={{background:"rgba(52,211,153,0.15)", borderRadius:"12px", padding:"12px 16px", marginTop:"10px", display:"flex", justifyContent:"space-between"}}>
+                    <p style={{color:"#34d399", fontSize:"15px", fontWeight:"700", margin:0}}>Change</p>
+                    <p style={{color:"#34d399", fontSize:"15px", fontWeight:"800", margin:0}}>{fmt(change)}</p>
+                  </div>
                 )}
               </div>
             )}
-
-            <div style={{display:"flex", gap:"10px"}}>
-              <button onClick={()=>{setCheckout(false);setTendered("");}}
-                style={{flex:1, padding:"14px", borderRadius:"12px", background:"#334155", border:"none", color:"#94a3b8", fontSize:"15px", fontWeight:"700", cursor:"pointer", fontFamily:"inherit"}}>
-                Cancel
-              </button>
-              <button onClick={handleCheckout}
-                style={{flex:2, padding:"14px", borderRadius:"12px", background:"linear-gradient(135deg,#4f46e5,#7c3aed)", border:"none", color:"white", fontSize:"15px", fontWeight:"700", cursor:"pointer", fontFamily:"inherit"}}>
-                Confirm Sale
-              </button>
-            </div>
-
+          </div>
+          <div style={{padding:"16px 20px", background:"rgba(10,15,30,0.85)", borderTop:"1px solid rgba(255,255,255,0.08)", flexShrink:0, position:"fixed", bottom:"0", left:"0", right:"0", zIndex:400}}>
+            <button onClick={handleCheckout}
+              disabled={confirming} style={{width:"100%", padding:"18px", borderRadius:"16px", background:"linear-gradient(135deg,#4f46e5,#7c3aed)", border:"none", color:"white", fontSize:"17px", fontWeight:"800", cursor:"pointer", fontFamily:"inherit", opacity:confirming?0.7:1}}>
+              {confirming ? "Processing…" : `✓ Confirm Sale — ${fmt(total)}`}
+            </button>
           </div>
         </div>
       )}
@@ -956,7 +1010,7 @@ function InventoryView({ products, setProducts, onAdd, onDelete, updateProduct: 
       </div>
       <div style={{flex:1, overflowY:"auto", padding:"0 16px"}} className="no-scrollbar">
         {visible.map(p=>(
-          <div key={p.id} style={{background:"#1e293b", borderRadius:"16px", padding:"14px", marginBottom:"10px", display:"flex", alignItems:"center", gap:"12px"}}>
+          <div key={p.id} style={{background:"rgba(15,23,42,0.7)", borderRadius:"16px", padding:"14px", marginBottom:"10px", display:"flex", alignItems:"center", gap:"12px"}}>
             {p.photo_url
               ? <img src={p.photo_url} alt={p.name} style={{width:"44px", height:"44px", objectFit:"cover", borderRadius:"10px", flexShrink:0}} />
               : <span style={{fontSize:"28px"}}>📦</span>
@@ -981,7 +1035,7 @@ function InventoryView({ products, setProducts, onAdd, onDelete, updateProduct: 
                   {p.stock}
                 </button>
                 <button onClick={()=>adjust(p.id,1)} style={{width:"28px", height:"28px", background:"#334155", border:"none", borderRadius:"50%", color:"#e2e8f0", cursor:"pointer", fontFamily:"inherit", fontSize:"16px"}}>+</button>
-                <button onClick={()=>setEditProduct(p)}
+                <button onClick={()=>{setEditProduct(p);document.body.classList.add("checkout-open");}}
                   style={{width:"28px", height:"28px", background:"transparent", border:"none", color:"#818cf8", cursor:"pointer", fontFamily:"inherit", fontSize:"16px"}}>✏️</button>
                 <button onClick={()=>{ if(confirm("Delete this product?")) onDelete(p.id); }}
                   style={{width:"28px", height:"28px", background:"transparent", border:"none", color:"#475569", cursor:"pointer", fontFamily:"inherit", fontSize:"16px"}}>🗑</button>
@@ -1000,7 +1054,6 @@ function InventoryView({ products, setProducts, onAdd, onDelete, updateProduct: 
           onSave={async (updates, photoFile) => {
             let photo_url = editProduct.photo_url;
             if (photoFile) {
-              const { supabase } = await import("./lib/supabase");
               const ext  = photoFile.name.split(".").pop();
               const path = `${editProduct.shop_id}/${Date.now()}.${ext}`;
               const { error: upErr } = await supabase.storage.from("product-images").upload(path, photoFile, { upsert:true });
@@ -1012,9 +1065,10 @@ function InventoryView({ products, setProducts, onAdd, onDelete, updateProduct: 
             await updateProd(editProduct.id, { ...updates, photo_url });
             setProducts(prev=>prev.map(p=>p.id===editProduct.id?{...p,...updates,photo_url}:p));
             setEditProduct(null);
+            document.body.classList.remove("checkout-open");
             showToast("Product updated");
           }}
-          onClose={()=>setEditProduct(null)}
+          onClose={()=>{setEditProduct(null);document.body.classList.remove("checkout-open");}}
         />
       )}
     </div>
@@ -1080,7 +1134,7 @@ function ReportsView({ sales, expenses, todaySales, todayRev, shopName, onAddExp
   const avgSale     = todaySales.length>0?todayRev/todaySales.length:0;
 
   const itemMap = {};
-  todaySales.forEach(s=>s.items.forEach(i=>{ if(!itemMap[i.name]) itemMap[i.name]={qty:0,rev:0,emoji:i.emoji}; itemMap[i.name].qty+=i.qty; itemMap[i.name].rev+=i.price*i.qty; }));
+  todaySales.forEach(s=>s.items.forEach(i=>{ if(!itemMap[i.name]) itemMap[i.name]={qty:0,rev:0}; itemMap[i.name].qty+=i.qty; itemMap[i.name].rev+=i.price*i.qty; }));
   const topItems = Object.entries(itemMap).sort((a,b)=>b[1].qty-a[1].qty).slice(0,5);
   const maxQty   = topItems[0]?.[1].qty||1;
 
@@ -1159,25 +1213,25 @@ function ReportsView({ sales, expenses, todaySales, todayRev, shopName, onAddExp
                   <p style={{color:"#c7d2fe", fontSize:"11px", marginTop:"4px"}}>{rangeSales.length} transactions</p>
                 </div>
                 <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:"10px"}}>
-                  <div style={{background:"#1e293b", borderRadius:"14px", padding:"14px"}}>
+                  <div style={{background:"rgba(15,23,42,0.7)", borderRadius:"14px", padding:"14px"}}>
                     <p style={{color:"#64748b", fontSize:"11px"}}>💵 Cash</p>
                     <p style={{color:"#f1f5f9", fontSize:"22px", fontWeight:"800", marginTop:"4px"}}>{rangeCash}</p>
                   </div>
-                  <div style={{background:"#1e293b", borderRadius:"14px", padding:"14px"}}>
+                  <div style={{background:"rgba(15,23,42,0.7)", borderRadius:"14px", padding:"14px"}}>
                     <p style={{color:"#64748b", fontSize:"11px"}}>💳 M-Pesa</p>
                     <p style={{color:"#f1f5f9", fontSize:"22px", fontWeight:"800", marginTop:"4px"}}>{rangeMpesa}</p>
                   </div>
-                  <div style={{background:"#1e293b", borderRadius:"14px", padding:"14px"}}>
+                  <div style={{background:"rgba(15,23,42,0.7)", borderRadius:"14px", padding:"14px"}}>
                     <p style={{color:"#64748b", fontSize:"11px"}}>💸 Expenses</p>
                     <p style={{color:"#f87171", fontSize:"22px", fontWeight:"800", marginTop:"4px"}}>{fmt(rangeExpTotal)}</p>
                   </div>
-                  <div style={{background:"#1e293b", borderRadius:"14px", padding:"14px"}}>
+                  <div style={{background:"rgba(15,23,42,0.7)", borderRadius:"14px", padding:"14px"}}>
                     <p style={{color:"#64748b", fontSize:"11px"}}>📈 Profit</p>
                     <p style={{color:"#34d399", fontSize:"22px", fontWeight:"800", marginTop:"4px"}}>{fmt(rangeRev-rangeExpTotal)}</p>
                   </div>
                 </div>
                 {rTopItems.length>0 && (
-                  <div style={{background:"#1e293b", borderRadius:"14px", padding:"14px"}}>
+                  <div style={{background:"rgba(15,23,42,0.7)", borderRadius:"14px", padding:"14px"}}>
                     <p style={{fontSize:"13px", fontWeight:"700", marginBottom:"12px"}}>🏆 Top Sellers — {rangeLabel}</p>
                     {rTopItems.map(([name,data],idx)=>(
                       <div key={name} style={{display:"flex", alignItems:"center", gap:"8px", marginBottom:"10px"}}>
@@ -1202,7 +1256,7 @@ function ReportsView({ sales, expenses, todaySales, todayRev, shopName, onAddExp
       {tab==="history" && (
         <div style={{display:"flex", flexDirection:"column", gap:"10px"}}>
           {/* Date picker */}
-          <div style={{background:"#1e293b", borderRadius:"14px", padding:"14px", display:"flex", alignItems:"center", gap:"10px"}}>
+          <div style={{background:"rgba(15,23,42,0.7)", borderRadius:"14px", padding:"14px", display:"flex", alignItems:"center", gap:"10px"}}>
             <span style={{fontSize:"16px"}}>📅</span>
             <input type="date" value={historyDate} onChange={e=>setHistoryDate(e.target.value)}
               style={{flex:1, background:"#0f172a", border:"1px solid #334155", borderRadius:"10px", padding:"8px 12px", color:"#f1f5f9", fontSize:"14px", outline:"none", fontFamily:"inherit"}} />
@@ -1222,7 +1276,7 @@ function ReportsView({ sales, expenses, todaySales, todayRev, shopName, onAddExp
                   <p style={{color:"#c7d2fe", fontSize:"13px", fontWeight:"600"}}>{daySales.length} sales</p>
                 </div>
                 {daySales.map(s=>(
-                  <div key={s.id} style={{background:"#1e293b", borderRadius:"14px", overflow:"hidden"}}>
+                  <div key={s.id} style={{background:"rgba(15,23,42,0.7)", borderRadius:"14px", overflow:"hidden"}}>
                     <div onClick={()=>setExpandedSale(expandedSale===s.id?null:s.id)}
                       style={{padding:"14px", display:"flex", alignItems:"center", justifyContent:"space-between", cursor:"pointer"}}>
                       <div>
@@ -1257,7 +1311,7 @@ function ReportsView({ sales, expenses, todaySales, todayRev, shopName, onAddExp
 
       {tab==="expenses" && (
         <div style={{display:"flex", flexDirection:"column", gap:"10px"}}>
-          <div style={{background:"#1e293b", borderRadius:"14px", padding:"14px"}}>
+          <div style={{background:"rgba(15,23,42,0.7)", borderRadius:"14px", padding:"14px"}}>
             <p style={{fontSize:"13px", fontWeight:"700", marginBottom:"10px"}}>Add Expense</p>
             <input value={expLabel} onChange={e=>setExpLabel(e.target.value)} placeholder="Description (e.g. Transport)"
               style={{width:"100%", background:"#0f172a", border:"1px solid #334155", borderRadius:"10px", padding:"10px 12px", color:"#f1f5f9", fontSize:"14px", outline:"none", fontFamily:"inherit", marginBottom:"8px"}} />
@@ -1270,7 +1324,7 @@ function ReportsView({ sales, expenses, todaySales, todayRev, shopName, onAddExp
             </button>
           </div>
           {expenses.slice(0,30).map(e=>(
-            <div key={e.id} style={{background:"#1e293b", borderRadius:"14px", padding:"14px", display:"flex", alignItems:"center", justifyContent:"space-between"}}>
+            <div key={e.id} style={{background:"rgba(15,23,42,0.7)", borderRadius:"14px", padding:"14px", display:"flex", alignItems:"center", justifyContent:"space-between"}}>
               <div>
                 <p style={{fontSize:"14px", fontWeight:"600", color:"#e2e8f0"}}>{e.note||e.category}</p>
                 <p style={{fontSize:"11px", color:"#64748b"}}>{fmtDt(e.ts)}</p>
@@ -1286,7 +1340,7 @@ function ReportsView({ sales, expenses, todaySales, todayRev, shopName, onAddExp
       )}
 
       {tab==="pdf" && (
-        <div style={{background:"#1e293b", borderRadius:"14px", padding:"16px"}}>
+        <div style={{background:"rgba(15,23,42,0.7)", borderRadius:"14px", padding:"16px"}}>
           <p style={{fontSize:"14px", fontWeight:"700", marginBottom:"12px"}}>📥 Monthly Report</p>
           <input type="month" value={exportMonth} onChange={e=>setExportMonth(e.target.value)}
             style={{width:"100%", background:"#0f172a", border:"1px solid #334155", borderRadius:"10px", padding:"10px 12px", color:"#f1f5f9", fontSize:"14px", outline:"none", fontFamily:"inherit", marginBottom:"10px"}} />
@@ -1385,7 +1439,7 @@ function SettingsView({ shop, onShopUpdate, showToast, onSignOut, categories, se
       </div>
 
       {tab==="shop" && (
-        <div style={{background:"#1e293b", borderRadius:"14px", padding:"16px", display:"flex", flexDirection:"column", gap:"12px"}}>
+        <div style={{background:"rgba(15,23,42,0.7)", borderRadius:"14px", padding:"16px", display:"flex", flexDirection:"column", gap:"12px"}}>
           <p style={{fontSize:"14px", fontWeight:"700"}}>Shop Name</p>
           <input value={shopName} onChange={e=>setShopName(e.target.value)}
             style={{background:"#0f172a", border:"1px solid #334155", borderRadius:"10px", padding:"12px", color:"#f1f5f9", fontSize:"14px", outline:"none", fontFamily:"inherit"}} />
@@ -1404,7 +1458,7 @@ function SettingsView({ shop, onShopUpdate, showToast, onSignOut, categories, se
 
       {tab==="categories" && (
         <div style={{display:"flex", flexDirection:"column", gap:"10px"}}>
-          <div style={{background:"#1e293b", borderRadius:"14px", padding:"16px"}}>
+          <div style={{background:"rgba(15,23,42,0.7)", borderRadius:"14px", padding:"16px"}}>
             <p style={{fontSize:"14px", fontWeight:"700", marginBottom:"12px"}}>Add Category</p>
             <div style={{display:"flex", gap:"8px"}}>
               <input value={newCat} onChange={e=>setNewCat(e.target.value)}
@@ -1417,7 +1471,7 @@ function SettingsView({ shop, onShopUpdate, showToast, onSignOut, categories, se
               </button>
             </div>
           </div>
-          <div style={{background:"#1e293b", borderRadius:"14px", padding:"16px"}}>
+          <div style={{background:"rgba(15,23,42,0.7)", borderRadius:"14px", padding:"16px"}}>
             <p style={{fontSize:"13px", fontWeight:"700", marginBottom:"12px", color:"#94a3b8"}}>Your Categories</p>
             {(categories || DEFAULT_CATEGORIES).map(cat=>(
               <div key={cat} style={{display:"flex", alignItems:"center", justifyContent:"space-between", padding:"10px 0", borderBottom:"1px solid #334155"}}>
@@ -1431,7 +1485,7 @@ function SettingsView({ shop, onShopUpdate, showToast, onSignOut, categories, se
       )}
 
       {tab==="pin" && (
-        <div style={{background:"#1e293b", borderRadius:"14px", padding:"16px", display:"flex", flexDirection:"column", alignItems:"center", gap:"16px"}}>
+        <div style={{background:"rgba(15,23,42,0.7)", borderRadius:"14px", padding:"16px", display:"flex", flexDirection:"column", alignItems:"center", gap:"16px"}}>
           <div style={{display:"flex", gap:"8px", width:"100%"}}>
             {[["owner","Owner"],["staff","Staff"]].map(([t,label])=>(
               <button key={t} onClick={()=>{setPinType(t);setStep("verify");setPin0("");setPin1("");setPin2("");setError("");}}
@@ -1449,7 +1503,7 @@ function SettingsView({ shop, onShopUpdate, showToast, onSignOut, categories, se
       )}
 
       {tab==="account" && (
-        <div style={{background:"#1e293b", borderRadius:"14px", padding:"16px", display:"flex", flexDirection:"column", gap:"12px"}}>
+        <div style={{background:"rgba(15,23,42,0.7)", borderRadius:"14px", padding:"16px", display:"flex", flexDirection:"column", gap:"12px"}}>
           <p style={{fontSize:"14px", fontWeight:"700"}}>Account</p>
           <button onClick={onSignOut}
             style={{padding:"14px", borderRadius:"10px", background:"#7f1d1d", border:"none", color:"#fca5a5", fontSize:"14px", fontWeight:"700", cursor:"pointer", fontFamily:"inherit"}}>
@@ -1481,7 +1535,7 @@ function EditProductOverlay({ product, categories, onSave, onClose }) {
   const [photoFile,    setPhotoFile   ] = useState(null);
   const [photoPreview, setPhotoPreview] = useState(product.photo_url||null);
   const set = (k,v) => setForm(p=>({...p,[k]:v}));
-  const valid = form.name.trim() && parseFloat(form.price)>0;
+  const valid = form.name.trim() && parseFloat(form.price)>0 && parseFloat(form.stock)>=0 && parseFloat(form.threshold)>=0;
 
   const handlePhoto = (e) => {
     const file = e.target.files[0];
@@ -1501,8 +1555,8 @@ function EditProductOverlay({ product, categories, onSave, onClose }) {
   };
 
   return (
-    <div style={{position:"fixed", inset:0, zIndex:50, display:"flex", alignItems:"flex-end", background:"rgba(0,0,0,0.7)"}}>
-      <div style={{background:"#1e293b", borderRadius:"24px 24px 0 0", width:"100%", padding:"20px", maxHeight:"90vh", overflowY:"auto", fontFamily:"'DM Sans',system-ui,sans-serif"}} className="no-scrollbar">
+    <div style={{position:"fixed", inset:0, zIndex:200, display:"flex", alignItems:"flex-end", background:"rgba(0,0,0,0.7)"}}>
+      <div style={{background:"rgba(15,23,42,0.92)", borderRadius:"24px 24px 0 0", width:"100%", padding:"20px", maxHeight:"90vh", overflowY:"auto", fontFamily:"'DM Sans',system-ui,sans-serif"}} className="no-scrollbar">
         <div style={{display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:"16px"}}>
           <p style={{fontSize:"18px", fontWeight:"800"}}>Edit Product</p>
           <button onClick={onClose} style={{background:"none", border:"none", color:"#64748b", fontSize:"28px", cursor:"pointer", lineHeight:1}}>×</button>
@@ -1600,7 +1654,7 @@ function AddProductOverlay({ onSave, onClose, categories }) {
   const [photoFile,    setPhotoFile   ] = useState(null);
   const [photoPreview, setPhotoPreview] = useState(null);
   const set   = (k,v) => setForm(p=>({...p,[k]:v}));
-  const valid = form.name.trim() && parseFloat(form.price)>0;
+  const valid = form.name.trim() && parseFloat(form.price)>0 && parseFloat(form.stock)>=0 && parseFloat(form.threshold)>=0;
 
   const handlePhoto = (e) => {
     const file = e.target.files[0];
@@ -1623,8 +1677,8 @@ function AddProductOverlay({ onSave, onClose, categories }) {
   };
 
   return (
-    <div style={{position:"fixed", inset:0, zIndex:50, display:"flex", alignItems:"flex-end", background:"rgba(0,0,0,0.7)"}}>
-      <div style={{background:"#1e293b", borderRadius:"24px 24px 0 0", width:"100%", padding:"20px", maxHeight:"90vh", overflowY:"auto", ...S}} className="no-scrollbar">
+    <div style={{position:"fixed", inset:0, zIndex:200, display:"flex", alignItems:"flex-end", background:"rgba(0,0,0,0.7)"}}>
+      <div style={{background:"rgba(15,23,42,0.92)", borderRadius:"24px 24px 0 0", width:"100%", padding:"20px", maxHeight:"90vh", overflowY:"auto", ...S}} className="no-scrollbar">
         <div style={{display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:"16px"}}>
           <p style={{fontSize:"18px", fontWeight:"800"}}>New Product</p>
           <button onClick={onClose} style={{background:"none", border:"none", color:"#64748b", fontSize:"28px", cursor:"pointer", lineHeight:1}}>×</button>

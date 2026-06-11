@@ -4,3 +4,22 @@ body { overscroll-behavior: none; }
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 .mono { font-variant-numeric: tabular-nums; }
+
+/* Background image overlay for readability */
+#root > div > div::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 15, 30, 0.55);
+  pointer-events: none;
+  z-index: 0;
+}
+#root > div > div > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* Hide nav when checkout fullscreen is open */
+.checkout-open nav {
+  display: none !important;
+}
