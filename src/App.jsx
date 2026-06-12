@@ -6,7 +6,7 @@ import {
   verifyOwnerPIN, verifyStaffPIN,
   getProducts, addProduct, updateProduct, deleteProduct, decrementStock,
   getSales, addSale,
-  getExpenses, addExpense, deleteExpense,
+  getExpenses, addExpense, deleteExpense, resetPassword,
 } from "./lib/db";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -132,7 +132,18 @@ export default function App() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let initialized = false;
+
     const init = async () => {
+      // Check if this is a password recovery redirect
+      const hash = window.location.hash;
+      if (hash && hash.includes("type=recovery")) {
+        setScreen("resetpassword");
+        setLoading(false);
+        initialized = true;
+        return;
+      }
+
       const { data: { session } } = await supabase.auth.getSession();
       if (session) {
         setUser(session.user);
@@ -143,20 +154,27 @@ export default function App() {
         setScreen("login");
       }
       setLoading(false);
+      initialized = true;
     };
     init();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_e, session) => {
-      if (session) {
-        setUser(session.user);
-        const s = await getShopByOwner(session.user.id);
-        if (s) { setShop(s); setScreen("pin"); }
-        else setScreen("setup");
-      } else {
+      // Ignore the initial auth state change — handled by init()
+      if (!initialized) return;
+      if (_e === "PASSWORD_RECOVERY") {
+        setScreen("resetpassword");
+        return;
+      }
+      if (_e === "SIGNED_OUT") {
         setUser(null); setShop(null); setRole(null); setScreen("login");
-        // Session expired — clear any stale state
-        if (_e === "SIGNED_OUT" || _e === "TOKEN_REFRESHED") {
-          setScreen("login");
+        return;
+      }
+      if (_e === "SIGNED_IN" || _e === "TOKEN_REFRESHED") {
+        if (session) {
+          setUser(session.user);
+          const s = await getShopByOwner(session.user.id);
+          if (s) { setShop(s); setScreen("pin"); }
+          else setScreen("setup");
         }
       }
     });
@@ -172,6 +190,7 @@ export default function App() {
   if (screen === "login")  return <LoginScreen />;
   if (screen === "setup")  return <SetupScreen onDone={onSetupDone} />;
   if (screen === "pin")    return <PINScreen shop={shop} onSuccess={onPINSuccess} />;
+  if (screen === "resetpassword") return <ResetPasswordScreen onDone={()=>setScreen("login")} />;
   if (screen === "app")    return <POSApp shop={shop} role={role} user={user} onLock={onLock} onShopUpdate={onShopUpdate} />;
   return <Splash />;
 }
@@ -203,7 +222,7 @@ function Splash() {
    LOGIN SCREEN
 ══════════════════════════════════════════════════════════════════ */
 function LoginScreen() {
-  const [mode,     setMode    ] = useState("login"); // login|register
+  const [mode,     setMode    ] = useState("login"); // login|register|reset
   const [email,    setEmail   ] = useState("");
   const [password, setPassword] = useState("");
   const [error,    setError   ] = useState("");
@@ -213,7 +232,13 @@ function LoginScreen() {
     setError(""); setLoading(true);
     try {
       if (mode === "login") await signIn(email, password);
-      else await signUp(email, password);
+      else if (mode === "register") await signUp(email, password);
+      else if (mode === "reset") {
+        await resetPassword(email);
+        setError("✓ Password reset email sent! Check your inbox.");
+        setLoading(false);
+        return;
+      }
     } catch(e) { setError(e.message); }
     setLoading(false);
   };
@@ -231,19 +256,78 @@ function LoginScreen() {
         <div style={{display:"flex", flexDirection:"column", gap:"12px"}}>
           <input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="Email address"
             style={{background:"#1e293b", border:"1.5px solid #334155", borderRadius:"14px", padding:"14px 16px", color:"#f1f5f9", fontSize:"15px", outline:"none", fontFamily:"inherit"}} />
-          <input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="Password"
+          {mode!=="reset" && <input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="Password"
             style={{background:"#1e293b", border:"1.5px solid #334155", borderRadius:"14px", padding:"14px 16px", color:"#f1f5f9", fontSize:"15px", outline:"none", fontFamily:"inherit"}}
-            onKeyDown={e=>e.key==="Enter"&&handle()} />
+            onKeyDown={e=>e.key==="Enter"&&handle()} />}
           {error && <p style={{color:"#f87171", fontSize:"12px", margin:"0"}}>{error}</p>}
-          <button onClick={handle} disabled={loading || !email || !password}
-            style={{background:"linear-gradient(135deg,#4f46e5,#7c3aed)", border:"none", borderRadius:"14px", padding:"16px", color:"white", fontSize:"16px", fontWeight:"700", cursor:"pointer", fontFamily:"inherit", opacity:loading||!email||!password?0.6:1}}>
-            {loading ? "Please wait…" : mode==="login" ? "Sign In" : "Create Account"}
+          <button onClick={handle} disabled={loading || !email || (mode!=="reset" && !password)}
+            style={{background:"linear-gradient(135deg,#4f46e5,#7c3aed)", border:"none", borderRadius:"14px", padding:"16px", color:"white", fontSize:"16px", fontWeight:"700", cursor:"pointer", fontFamily:"inherit", opacity:loading||!email||(mode!=="reset"&&!password)?0.6:1}}>
+            {loading ? "Please wait…" : mode==="login" ? "Sign In" : mode==="register" ? "Create Account" : "Send Reset Email"}
           </button>
           <button onClick={()=>{setMode(m=>m==="login"?"register":"login");setError("");}}
             style={{background:"none", border:"none", color:"#64748b", fontSize:"13px", cursor:"pointer", fontFamily:"inherit"}}>
-            {mode==="login" ? "Don't have an account? Register" : "Already have an account? Sign in"}
+            {mode==="login" ? "Don't have an account? Register" : mode==="register" ? "Already have an account? Sign in" : "Back to Sign In"}
           </button>
+          {mode==="login" && (
+            <button onClick={()=>{setMode("reset");setError("");}}
+              style={{background:"none", border:"none", color:"#475569", fontSize:"12px", cursor:"pointer", fontFamily:"inherit"}}>
+              Forgot password?
+            </button>
+          )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   RESET PASSWORD SCREEN
+══════════════════════════════════════════════════════════════════ */
+function ResetPasswordScreen({ onDone }) {
+  const [password, setPassword] = useState("");
+  const [confirm,  setConfirm ] = useState("");
+  const [error,    setError   ] = useState("");
+  const [loading,  setLoading ] = useState(false);
+  const [done,     setDone    ] = useState(false);
+
+  const handle = async () => {
+    if (password !== confirm) { setError("Passwords don't match"); return; }
+    if (password.length < 6)  { setError("Password must be at least 6 characters"); return; }
+    setLoading(true);
+    try {
+      const { error } = await supabase.auth.updateUser({ password });
+      if (error) throw error;
+      setDone(true);
+      setTimeout(onDone, 2000);
+    } catch(e) { setError(e.message); }
+    setLoading(false);
+  };
+
+  return (
+    <div style={{minHeight:"100vh", background:"url(/bg.jpg) center/cover no-repeat fixed #0a0f1e", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"24px", fontFamily:"'DM Sans',system-ui,sans-serif"}}>
+      <style>{`@keyframes fadeIn{from{opacity:0}to{opacity:1}}`}</style>
+      <div style={{width:"100%", maxWidth:"360px", animation:"fadeIn 0.3s ease"}}>
+        <div style={{textAlign:"center", marginBottom:"28px"}}>
+          <img src="/icons/icon-192.png" alt="QuickPOS" style={{width:"72px", height:"72px", borderRadius:"20px", margin:"0 auto 14px", display:"block"}} />
+          <h1 style={{color:"#f1f5f9", fontSize:"24px", fontWeight:"800", margin:"0 0 3px"}}>Set New Password</h1>
+          <p style={{color:"#64748b", fontSize:"13px", margin:0}}>Choose a strong password</p>
+        </div>
+        {done ? (
+          <p style={{color:"#34d399", fontSize:"15px", textAlign:"center", fontWeight:"700"}}>✓ Password updated! Redirecting…</p>
+        ) : (
+          <div style={{display:"flex", flexDirection:"column", gap:"12px"}}>
+            <input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="New password"
+              style={{background:"rgba(30,41,59,0.8)", border:"1.5px solid #334155", borderRadius:"14px", padding:"14px 16px", color:"#f1f5f9", fontSize:"15px", outline:"none", fontFamily:"inherit"}} />
+            <input type="password" value={confirm} onChange={e=>setConfirm(e.target.value)} placeholder="Confirm password"
+              style={{background:"rgba(30,41,59,0.8)", border:"1.5px solid #334155", borderRadius:"14px", padding:"14px 16px", color:"#f1f5f9", fontSize:"15px", outline:"none", fontFamily:"inherit"}}
+              onKeyDown={e=>e.key==="Enter"&&handle()} />
+            {error && <p style={{color:"#f87171", fontSize:"12px", margin:0}}>{error}</p>}
+            <button onClick={handle} disabled={loading||!password||!confirm}
+              style={{background:"linear-gradient(135deg,#4f46e5,#7c3aed)", border:"none", borderRadius:"14px", padding:"16px", color:"white", fontSize:"16px", fontWeight:"700", cursor:"pointer", fontFamily:"inherit", opacity:loading||!password||!confirm?0.6:1}}>
+              {loading?"Updating…":"Update Password"}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -495,6 +579,8 @@ function POSApp({ shop, role, user, onLock, onShopUpdate }) {
     });
   };
 
+
+
   const handleCheckout = async (method, tendered) => {
     const total = cart.reduce((s,i)=>s+i.price*i.qty, 0);
     const sale = { items: cart, total, subtotal: total, tax: 0, method, tendered: tendered||0, change: tendered?tendered-total:0 };
@@ -514,7 +600,11 @@ function POSApp({ shop, role, user, onLock, onShopUpdate }) {
       ]);
       setSales(prev=>[saved,...prev]);
       for (const item of cartSnapshot) {
-        try { await decrementStock(item.pid, item.qty); } catch(_) {}
+        try {
+          const stockId = item.productId || item.pid;
+          const deductQty = item.isContainer ? item.weight * item.qty : item.qty;
+          await decrementStock(stockId, deductQty);
+        } catch(_) {}
       }
       showToast(`Sale saved — ${fmt(total)}`);
     } catch(e) {
@@ -693,7 +783,29 @@ function POSView({ products, cart, setCart, onAddToCart, onCheckout, showToast, 
   const cartCount = cart.reduce((s,i)=>s+i.qty, 0);
   const change    = parseFloat(tendered) - total;
 
-  const [fracPicker, setFracPicker] = useState(null); // pid of item showing picker
+  const [fracPicker,      setFracPicker     ] = useState(null);
+  const [containerPicker, setContainerPicker] = useState(null);
+
+  const addContainerToCart = (product, container) => {
+    setCart(prev => {
+      const key = `${product.id}_${container.name}`;
+      const existing = prev.find(i=>i.pid===key);
+      if (existing) return prev.map(i=>i.pid===key?{...i,qty:i.qty+1}:i);
+      return [...prev, {
+        pid: key,
+        productId: product.id,
+        name: `${product.name} (${container.name})`,
+        price: container.price,
+        photo_url: product.photo_url,
+        qty: 1,
+        unit: container.unit||"kg",
+        weight: container.weight,
+        fractional: false,
+        isContainer: true,
+      }];
+    });
+    setContainerPicker(null);
+  };
 
   const adjust = (pid, delta) => {
     setCart(prev => {
@@ -751,7 +863,7 @@ function POSView({ products, cart, setCart, onAddToCart, onCheckout, showToast, 
       {/* Products grid */}
       <div style={{flex:1, overflowY:"auto", padding:"0 16px 10px", display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:"10px", alignContent:"start"}} className="no-scrollbar product-grid">
         {filtered.map(p=>(
-          <button key={p.id} onClick={()=>onAddToCart(p)}
+          <button key={p.id} onClick={()=>p.containers&&p.containers.length>0?setContainerPicker(p):onAddToCart(p)}
             style={{background:"rgba(15,23,42,0.75)", border:"1px solid rgba(255,255,255,0.08)", borderRadius:"16px", padding:"14px 12px", cursor:"pointer", textAlign:"left", fontFamily:"inherit", position:"relative"}}>
             {p.stock===0 && <span style={{position:"absolute", top:"8px", right:"8px", background:"#7f1d1d", color:"#fca5a5", fontSize:"9px", fontWeight:"700", padding:"2px 6px", borderRadius:"100px"}}>OUT</span>}
             {p.photo_url
@@ -883,7 +995,18 @@ function POSView({ products, cart, setCart, onAddToCart, onCheckout, showToast, 
                 style={{flex:1, padding:"13px", borderRadius:"12px", background:"#1e3a5f", border:"none", color:"#93c5fd", fontSize:"13px", fontWeight:"700", cursor:"pointer", fontFamily:"inherit", display:"flex", flexDirection:"column", alignItems:"center", gap:"3px"}}>
                 <span style={{fontSize:"18px"}}>🖨️</span>Print
               </button>
-              <button onClick={()=>onShareWhatsApp(lastSale)}
+              <button onClick={async()=>{
+                  const lines = lastSale.items.map(i=>`${i.name} x${i.qty}  KSh ${Math.round(i.price*i.qty).toLocaleString()}`).join("\n");
+                  const method = lastSale.method==="cash"?"💵 Cash":"💳 M-Pesa";
+                  const date = new Date().toLocaleString("en-KE",{day:"numeric",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"});
+                  const text = `🧾 Receipt\n📅 ${date}\n━━━━━━━━━━━━━━\n${lines}\n━━━━━━━━━━━━━━\nTOTAL: KSh ${Math.round(lastSale.total).toLocaleString()}\n${method}\n\nPowered by QuickPOS (0707091803)`;
+                  if(navigator.share){
+                    try{ await navigator.share({ title:"QuickPOS Receipt", text }); }
+                    catch(e){ if(e.name!=="AbortError") onShareWhatsApp(lastSale); }
+                  } else {
+                    onShareWhatsApp(lastSale);
+                  }
+                }}
                 style={{flex:1, padding:"13px", borderRadius:"12px", background:"#14532d", border:"none", color:"#86efac", fontSize:"13px", fontWeight:"700", cursor:"pointer", fontFamily:"inherit", display:"flex", flexDirection:"column", alignItems:"center", gap:"3px"}}>
                 <span style={{fontSize:"18px"}}>📲</span>Share
               </button>
@@ -892,6 +1015,46 @@ function POSView({ products, cart, setCart, onAddToCart, onCheckout, showToast, 
                 <span style={{fontSize:"18px"}}>✓</span>Done
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Container picker */}
+      {containerPicker && (
+        <div style={{position:"fixed", inset:0, background:"rgba(0,0,0,0.7)", display:"flex", alignItems:"flex-end", zIndex:200}}
+          onClick={()=>setContainerPicker(null)}>
+          <div style={{background:"rgba(15,23,42,0.97)", borderRadius:"24px 24px 0 0", width:"100%", padding:"20px", maxHeight:"70vh", overflowY:"auto", fontFamily:"inherit"}}
+            className="no-scrollbar" onClick={e=>e.stopPropagation()}>
+            <div style={{display:"flex", justifyContent:"center", marginBottom:"16px"}}>
+              <div style={{width:"40px", height:"4px", background:"#334155", borderRadius:"2px"}} />
+            </div>
+            <div style={{display:"flex", alignItems:"center", gap:"12px", marginBottom:"16px"}}>
+              {containerPicker.photo_url
+                ? <img src={containerPicker.photo_url} alt={containerPicker.name} style={{width:"48px", height:"48px", objectFit:"cover", borderRadius:"10px"}} />
+                : <span style={{fontSize:"32px"}}>📦</span>
+              }
+              <div>
+                <p style={{fontSize:"16px", fontWeight:"800", color:"#f1f5f9", margin:"0 0 2px"}}>{containerPicker.name}</p>
+                <p style={{fontSize:"12px", color:"#64748b", margin:0}}>Select container size</p>
+              </div>
+            </div>
+            <div style={{display:"flex", flexDirection:"column", gap:"10px"}}>
+              {containerPicker.containers.map((c,i)=>(
+                <button key={i} onClick={()=>addContainerToCart(containerPicker, c)}
+                  style={{background:"rgba(79,70,229,0.15)", border:"1.5px solid rgba(79,70,229,0.3)", borderRadius:"14px", padding:"14px 16px", cursor:"pointer", fontFamily:"inherit",
+                    display:"flex", alignItems:"center", justifyContent:"space-between"}}>
+                  <div style={{textAlign:"left"}}>
+                    <p style={{fontSize:"15px", fontWeight:"700", color:"#e2e8f0", margin:"0 0 2px"}}>🪣 {c.name}</p>
+                    <p style={{fontSize:"12px", color:"#64748b", margin:0}}>{c.weight} {c.unit||"kg"}</p>
+                  </div>
+                  <p style={{fontSize:"16px", fontWeight:"800", color:"#818cf8", margin:0}}>{fmt(c.price)}</p>
+                </button>
+              ))}
+            </div>
+            <button onClick={()=>setContainerPicker(null)}
+              style={{width:"100%", marginTop:"16px", padding:"12px", borderRadius:"12px", background:"#334155", border:"none", color:"#94a3b8", fontSize:"14px", fontWeight:"700", cursor:"pointer", fontFamily:"inherit"}}>
+              Cancel
+            </button>
           </div>
         </div>
       )}
@@ -1516,6 +1679,46 @@ function SettingsView({ shop, onShopUpdate, showToast, onSignOut, categories, se
 }
 
 /* ══════════════════════════════════════════════════════════════════
+   CONTAINER FORM
+══════════════════════════════════════════════════════════════════ */
+function ContainerForm({ onAdd }) {
+  const [name,   setName  ] = useState("");
+  const [weight, setWeight] = useState("");
+  const [price,  setPrice ] = useState("");
+  const [unit,   setUnit  ] = useState("kg");
+  const valid = name.trim() && parseFloat(weight)>0 && parseFloat(price)>0;
+
+  const handleAdd = () => {
+    onAdd({ name:name.trim(), weight:parseFloat(weight), price:parseFloat(price), unit });
+    setName(""); setWeight(""); setPrice("");
+  };
+
+  return (
+    <div style={{background:"#0f172a", borderRadius:"12px", padding:"12px", marginTop:"6px"}}>
+      <p style={{fontSize:"12px", color:"#64748b", fontWeight:"600", margin:"0 0 8px"}}>Add Container</p>
+      <div style={{display:"flex", flexDirection:"column", gap:"8px"}}>
+        <input value={name} onChange={e=>setName(e.target.value)} placeholder="Name (e.g. Small bucket)"
+          style={{background:"#1e293b", border:"1px solid #334155", borderRadius:"8px", padding:"8px 10px", color:"#f1f5f9", fontSize:"13px", outline:"none", fontFamily:"inherit"}} />
+        <div style={{display:"flex", gap:"8px"}}>
+          <input type="number" value={weight} onChange={e=>setWeight(e.target.value)} placeholder="Weight"
+            style={{flex:1, background:"#1e293b", border:"1px solid #334155", borderRadius:"8px", padding:"8px 10px", color:"#f1f5f9", fontSize:"13px", outline:"none", fontFamily:"inherit"}} />
+          <select value={unit} onChange={e=>setUnit(e.target.value)}
+            style={{background:"#1e293b", border:"1px solid #334155", borderRadius:"8px", padding:"8px 10px", color:"#f1f5f9", fontSize:"13px", outline:"none", fontFamily:"inherit"}}>
+            {["kg","g","L","pcs"].map(u=><option key={u} value={u}>{u}</option>)}
+          </select>
+        </div>
+        <input type="number" value={price} onChange={e=>setPrice(e.target.value)} placeholder="Price (KSh)"
+          style={{background:"#1e293b", border:"1px solid #334155", borderRadius:"8px", padding:"8px 10px", color:"#f1f5f9", fontSize:"13px", outline:"none", fontFamily:"inherit"}} />
+        <button onClick={handleAdd} disabled={!valid}
+          style={{padding:"10px", borderRadius:"8px", background:"#4f46e5", border:"none", color:"white", fontSize:"13px", fontWeight:"700", cursor:"pointer", fontFamily:"inherit", opacity:!valid?0.5:1}}>
+          + Add Container
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════
    EDIT PRODUCT OVERLAY
 ══════════════════════════════════════════════════════════════════ */
 function EditProductOverlay({ product, categories, onSave, onClose }) {
@@ -1570,7 +1773,7 @@ function EditProductOverlay({ product, categories, onSave, onClose }) {
                 ? <img src={photoPreview} alt="preview" style={{width:"80px", height:"80px", objectFit:"cover", borderRadius:"10px"}} />
                 : <><span style={{fontSize:"28px"}}>📷</span><span>Tap to change photo</span></>
               }
-              <input type="file" accept="image/*" capture="environment" onChange={handlePhoto} style={{display:"none"}} />
+              <input type="file" accept="image/*" onChange={handlePhoto} style={{display:"none"}} />
             </label>
             {photoPreview && (
               <button onClick={()=>{setPhotoFile(null);setPhotoPreview(null);}}
@@ -1631,6 +1834,24 @@ function EditProductOverlay({ product, categories, onSave, onClose }) {
               <span style={{position:"absolute", top:"3px", left:form.fractional?"23px":"3px", width:"18px", height:"18px", background:"white", borderRadius:"50%", transition:"left 0.2s", display:"block"}} />
             </button>
           </div>
+          {/* Container management */}
+          <div>
+            <label style={{fontSize:"11px", color:"#64748b", fontWeight:"600", textTransform:"uppercase", letterSpacing:"0.5px", display:"block", marginBottom:"8px"}}>
+              Containers <span style={{color:"#475569", textTransform:"none", fontWeight:"400"}}>(optional — for products sold in containers)</span>
+            </label>
+            {(form.containers||[]).map((c,i)=>(
+              <div key={i} style={{display:"flex", alignItems:"center", gap:"8px", marginBottom:"8px", background:"#0f172a", borderRadius:"10px", padding:"10px 12px"}}>
+                <div style={{flex:1}}>
+                  <p style={{fontSize:"13px", fontWeight:"700", color:"#e2e8f0", margin:"0 0 2px"}}>🪣 {c.name}</p>
+                  <p style={{fontSize:"11px", color:"#64748b", margin:0}}>{c.weight} {c.unit||"kg"} — {fmt(c.price)}</p>
+                </div>
+                <button onClick={()=>set("containers",(form.containers||[]).filter((_,j)=>j!==i))}
+                  style={{background:"none", border:"none", color:"#f87171", cursor:"pointer", fontFamily:"inherit", fontSize:"18px"}}>🗑</button>
+              </div>
+            ))}
+            <ContainerForm onAdd={(c)=>set("containers",[...(form.containers||[]),c])} />
+          </div>
+
           {saveError && <p style={{color:"#f87171", fontSize:"13px", background:"rgba(239,68,68,0.1)", padding:"10px 12px", borderRadius:"10px"}}>{saveError}</p>}
           <button disabled={!valid||saving} onClick={handleSave}
             style={{width:"100%", padding:"16px", borderRadius:"12px", background:"#4f46e5", border:"none", color:"white", fontSize:"16px", fontWeight:"700",
@@ -1648,7 +1869,7 @@ function EditProductOverlay({ product, categories, onSave, onClose }) {
 ══════════════════════════════════════════════════════════════════ */
 function AddProductOverlay({ onSave, onClose, categories }) {
   const shopCats = categories || DEFAULT_CATEGORIES;
-  const [form,         setForm        ] = useState({ name:"", price:"", barcode:"", stock:"0", threshold:"5", category:shopCats[0]||"Other", fractional:false, unit:"" });
+  const [form,         setForm        ] = useState({ name:"", price:"", barcode:"", stock:"0", threshold:"5", category:shopCats[0]||"Other", fractional:false, unit:"", containers:[] });
   const [saving,       setSaving      ] = useState(false);
   const [saveError,    setSaveError   ] = useState("");
   const [photoFile,    setPhotoFile   ] = useState(null);
@@ -1692,7 +1913,7 @@ function AddProductOverlay({ onSave, onClose, categories }) {
                 ? <img src={photoPreview} alt="preview" style={{width:"80px", height:"80px", objectFit:"cover", borderRadius:"10px"}} />
                 : <><span style={{fontSize:"28px"}}>📷</span><span>Tap to add photo</span></>
               }
-              <input type="file" accept="image/*" capture="environment" onChange={handlePhoto} style={{display:"none"}} />
+              <input type="file" accept="image/*" onChange={handlePhoto} style={{display:"none"}} />
             </label>
             {photoPreview && (
               <button onClick={()=>{setPhotoFile(null);setPhotoPreview(null);}}
@@ -1755,6 +1976,24 @@ function AddProductOverlay({ onSave, onClose, categories }) {
               ))}
             </div>
           </div>
+          {/* Containers */}
+          <div>
+            <label style={{fontSize:"11px", color:"#64748b", fontWeight:"600", textTransform:"uppercase", letterSpacing:"0.5px", display:"block", marginBottom:"8px"}}>
+              Containers <span style={{color:"#475569", textTransform:"none", fontWeight:"400"}}>(optional)</span>
+            </label>
+            {(form.containers||[]).map((c,i)=>(
+              <div key={i} style={{display:"flex", alignItems:"center", gap:"8px", marginBottom:"8px", background:"#0f172a", borderRadius:"10px", padding:"10px 12px"}}>
+                <div style={{flex:1}}>
+                  <p style={{fontSize:"13px", fontWeight:"700", color:"#e2e8f0", margin:"0 0 2px"}}>🪣 {c.name}</p>
+                  <p style={{fontSize:"11px", color:"#64748b", margin:0}}>{c.weight} {c.unit||"kg"} — {fmt(c.price)}</p>
+                </div>
+                <button onClick={()=>set("containers",(form.containers||[]).filter((_,j)=>j!==i))}
+                  style={{background:"none", border:"none", color:"#f87171", cursor:"pointer", fontFamily:"inherit", fontSize:"18px"}}>🗑</button>
+              </div>
+            ))}
+            <ContainerForm onAdd={(c)=>set("containers",[...(form.containers||[]),c])} />
+          </div>
+
           {saveError && <p style={{color:"#f87171", fontSize:"13px", background:"rgba(239,68,68,0.1)", padding:"10px 12px", borderRadius:"10px"}}>{saveError}</p>}
           <button disabled={!valid||saving} onClick={handleSave}
             style={{width:"100%", padding:"16px", borderRadius:"12px", background:"#4f46e5", border:"none", color:"white", fontSize:"16px", fontWeight:"700",

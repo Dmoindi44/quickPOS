@@ -125,3 +125,11 @@ export const decrementStock = async (productId, qty) => {
   });
   if (error) throw error;
 };
+
+/* Password reset */
+export const resetPassword = async (email) => {
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: window.location.origin,
+  });
+  if (error) throw error;
+};
