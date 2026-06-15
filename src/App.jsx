@@ -183,7 +183,13 @@ export default function App() {
 
   const onSetupDone = (s) => { setShop(s); setScreen("pin"); };
   const onPINSuccess = (r) => { setRole(r); setScreen("app"); };
-  const onLock = () => { setRole(null); setScreen("pin"); };
+  const onLock = async () => {
+    setRole(null);
+    // Re-fetch shop to get latest staff_pin_hash and other updates
+    const s = await getShopByOwner(user.id);
+    if (s) setShop(s);
+    setScreen("pin");
+  };
   const onShopUpdate = (s) => { setShop(s); };
 
   if (loading) return <Splash />;
@@ -239,7 +245,18 @@ function LoginScreen() {
         setLoading(false);
         return;
       }
-    } catch(e) { setError(e.message); }
+    } catch(e) {
+      const msg = e.message || "";
+      if (msg.toLowerCase().includes("email not confirmed")) {
+        setError("Please confirm your email address first. Check your inbox for a confirmation link.");
+      } else if (msg.toLowerCase().includes("invalid login credentials")) {
+        setError("Incorrect email or password. Please try again.");
+      } else if (msg.toLowerCase().includes("user already registered")) {
+        setError("An account with this email already exists. Please sign in.");
+      } else {
+        setError(msg);
+      }
+    }
     setLoading(false);
   };
 
@@ -1581,7 +1598,8 @@ function SettingsView({ shop, onShopUpdate, showToast, onSignOut, categories, se
       else {
         if (next!==pin1) { setError("PINs don't match"); setPin1(""); setPin2(""); setStep("enter"); return; }
         const updates = pinType==="owner" ? { ownerPin: next } : { staffPin: next };
-        await updateShop(shop.id, updates);
+        const updated = await updateShop(shop.id, updates);
+        onShopUpdate(updated);
         setPin0(""); setPin1(""); setPin2(""); setStep("verify");
         showToast(`${pinType==="owner"?"Owner":"Staff"} PIN updated`);
       }
