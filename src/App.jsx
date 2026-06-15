@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { supabase } from "./lib/supabase";
 import {
   signIn, signUp, signOut, getUser,
@@ -122,6 +122,36 @@ const fmtDt = (iso) => new Date(iso).toLocaleString("en-KE", { month:"short", da
 const S     = { fontFamily:"'DM Sans',system-ui,sans-serif" };
 
 /* ══════════════════════════════════════════════════════════════════
+   ERROR BOUNDARY
+══════════════════════════════════════════════════════════════════ */
+class ErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { hasError: false, error: null }; }
+  static getDerivedStateFromError(error) { return { hasError: true, error }; }
+  componentDidCatch(error, info) { console.error("App crashed:", error, info); }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{minHeight:"100vh", background:"#0f172a", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"24px", fontFamily:"'DM Sans',system-ui,sans-serif", color:"#f1f5f9"}}>
+          <div style={{fontSize:"48px", marginBottom:"16px"}}>⚠️</div>
+          <h1 style={{fontSize:"20px", fontWeight:"800", margin:"0 0 8px"}}>Something went wrong</h1>
+          <p style={{color:"#64748b", fontSize:"14px", margin:"0 0 24px", textAlign:"center"}}>The app encountered an error. Please refresh to continue.</p>
+          <button onClick={()=>window.location.reload()}
+            style={{background:"linear-gradient(135deg,#4f46e5,#7c3aed)", border:"none", borderRadius:"12px", padding:"14px 28px", color:"white", fontSize:"15px", fontWeight:"700", cursor:"pointer", fontFamily:"inherit"}}>
+            Refresh App
+          </button>
+          {process.env.NODE_ENV === "development" && (
+            <pre style={{marginTop:"24px", color:"#f87171", fontSize:"11px", maxWidth:"400px", overflow:"auto", background:"#1e293b", padding:"12px", borderRadius:"8px"}}>
+              {this.state.error?.toString()}
+            </pre>
+          )}
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════
    ROOT APP
 ══════════════════════════════════════════════════════════════════ */
 export default function App() {
@@ -185,14 +215,16 @@ export default function App() {
   const onPINSuccess = (r) => { setRole(r); setScreen("app"); };
   const onLock = async () => {
     setRole(null);
-    // Re-fetch shop to get latest staff_pin_hash and other updates
-    const s = await getShopByOwner(user.id);
-    if (s) setShop(s);
+    setScreen("splash");
+    try {
+      const s = await getShopByOwner(user.id);
+      if (s) setShop(s);
+    } catch(e) { console.error("Failed to refresh shop:", e); }
     setScreen("pin");
   };
   const onShopUpdate = (s) => { setShop(s); };
 
-  if (loading) return <Splash />;
+  if (loading) return <ErrorBoundary><Splash /></ErrorBoundary>;
   if (screen === "login")  return <LoginScreen />;
   if (screen === "setup")  return <SetupScreen onDone={onSetupDone} />;
   if (screen === "pin")    return <PINScreen shop={shop} onSuccess={onPINSuccess} />;
@@ -618,10 +650,13 @@ function POSApp({ shop, role, user, onLock, onShopUpdate }) {
       setSales(prev=>[saved,...prev]);
       for (const item of cartSnapshot) {
         try {
-          const stockId = item.productId || item.pid;
-          const deductQty = item.isContainer ? item.weight * item.qty : item.qty;
-          await decrementStock(stockId, deductQty);
-        } catch(_) {}
+          // For container items, use the real product ID and weight-based qty
+          const stockId = item.isContainer ? item.productId : item.pid;
+          const deductQty = item.isContainer ? (item.weight * item.qty) : item.qty;
+          if (stockId && !stockId.includes("_")) {
+            await decrementStock(stockId, deductQty);
+          }
+        } catch(e) { console.error("Stock decrement failed:", e); }
       }
       showToast(`Sale saved — ${fmt(total)}`);
     } catch(e) {
@@ -667,7 +702,7 @@ function POSApp({ shop, role, user, onLock, onShopUpdate }) {
       const { data: urlData } = supabase.storage
         .from("product-images")
         .getPublicUrl(path);
-      photo_url = urlData.publicUrl;
+      photo_url = urlData.publicUrl + '?width=400&quality=75';
     }
     const p = await addProduct(shop.id, { ...form, photo_url });
     setProducts(prev=>[...prev, p]);
@@ -698,7 +733,7 @@ function POSApp({ shop, role, user, onLock, onShopUpdate }) {
   const todayRev   = todaySales.reduce((s,x)=>s+x.total, 0);
   const lowStock   = products.filter(p=>p.stock>0&&p.stock<=(p.threshold||5));
 
-  if (loading) return <Splash />;
+  if (loading) return <ErrorBoundary><Splash /></ErrorBoundary>;
 
   return (
     /* Outer shell: full viewport, dark bg visible on wide screens */
@@ -746,7 +781,7 @@ function POSApp({ shop, role, user, onLock, onShopUpdate }) {
       <main style={{flex:1, overflow:"hidden", display:"flex", flexDirection:"column"}}>
         {view==="pos"       && <POSView products={products} cart={cart} setCart={setCart} onAddToCart={handleAddToCart} onCheckout={handleCheckout} showToast={showToast} categories={categories} lastSale={lastSale} onShareWhatsApp={shareWhatsApp} shop={shop} />}
         {view==="inventory" && role==="owner" && <InventoryView products={products} setProducts={setProducts} onAdd={()=>{setOverlay("addProduct");document.body.classList.add("checkout-open");}} onDelete={handleDeleteProduct} updateProduct={updateProduct} showToast={showToast} categories={categories} />}
-        {view==="reports"   && role==="owner" && <ReportsView sales={sales} expenses={expenses} todaySales={todaySales} todayRev={todayRev} shopName={shop.name} onAddExpense={handleAddExpense} onDeleteExpense={handleDeleteExpense} />}
+        {view==="reports"   && role==="owner" && <ReportsView sales={sales} expenses={expenses} todaySales={todaySales} todayRev={todayRev} shopName={shop.name} shopId={shop.id} onAddExpense={handleAddExpense} onDeleteExpense={handleDeleteExpense} />}
         {view==="settings"  && role==="owner" && <SettingsView shop={shop} onShopUpdate={onShopUpdate} showToast={showToast} onSignOut={()=>{ signOut(); }} categories={categories} setCategories={setCategories} />}
       </main>
 
@@ -1239,7 +1274,7 @@ function InventoryView({ products, setProducts, onAdd, onDelete, updateProduct: 
               const { error: upErr } = await supabase.storage.from("product-images").upload(path, photoFile, { upsert:true });
               if (!upErr) {
                 const { data: urlData } = supabase.storage.from("product-images").getPublicUrl(path);
-                photo_url = urlData.publicUrl;
+                photo_url = urlData.publicUrl + '?width=400&quality=75';
               }
             }
             await updateProd(editProduct.id, { ...updates, photo_url });
@@ -1258,7 +1293,7 @@ function InventoryView({ products, setProducts, onAdd, onDelete, updateProduct: 
 /* ══════════════════════════════════════════════════════════════════
    REPORTS VIEW
 ══════════════════════════════════════════════════════════════════ */
-function ReportsView({ sales, expenses, todaySales, todayRev, shopName, onAddExpense, onDeleteExpense }) {
+function ReportsView({ sales, expenses, todaySales, todayRev, shopName, shopId, onAddExpense, onDeleteExpense }) {
   const [exportMonth, setExportMonth] = useState(()=>{ const n=new Date(); return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}`; });
   const [expLabel, setExpLabel] = useState("");
   const [expAmount, setExpAmount] = useState("");
@@ -1318,9 +1353,16 @@ function ReportsView({ sales, expenses, todaySales, todayRev, shopName, onAddExp
   const topItems = Object.entries(itemMap).sort((a,b)=>b[1].qty-a[1].qty).slice(0,5);
   const maxQty   = topItems[0]?.[1].qty||1;
 
-  const exportPDF = () => {
+  const exportPDF = async () => {
     const [year, month] = exportMonth.split("-").map(Number);
-    const filtered = sales.filter(s=>{ const d=new Date(s.ts); return d.getFullYear()===year&&d.getMonth()+1===month; });
+    const from = new Date(year, month-1, 1).toISOString();
+    const to   = new Date(year, month, 0, 23, 59, 59).toISOString();
+    let filtered;
+    try {
+      filtered = await getSales(shopId, from, to);
+    } catch(e) {
+      filtered = sales.filter(s=>{ const d=new Date(s.ts); return d.getFullYear()===year&&d.getMonth()+1===month; });
+    }
     if (filtered.length===0) { alert("No sales for this month."); return; }
     const label = new Date(year,month-1).toLocaleDateString("en-KE",{month:"long",year:"numeric"});
     const doc = new jsPDF({ orientation:"portrait", unit:"mm", format:"a4" });
