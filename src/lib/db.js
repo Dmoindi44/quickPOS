@@ -49,6 +49,7 @@ export const createShop = async (name, ownerPin) => {
 export const updateShop = async (id, updates) => {
   if (updates.ownerPin) { updates.pin_hash = await hashPIN(updates.ownerPin); delete updates.ownerPin; }
   if (updates.staffPin) { updates.staff_pin_hash = await hashPIN(updates.staffPin); delete updates.staffPin; }
+  if (updates.staff_pin_hash === null) { /* allow explicit null to remove staff PIN */ }
   const { data, error } = await supabase.from("shops").update(updates).eq("id", id).select().single();
   if (error) throw error;
   return data;
@@ -74,6 +75,7 @@ export const addProduct = async (shopId, product) => {
   return data;
 };
 export const updateProduct = async (id, updates) => {
+  console.log("updateProduct payload:", JSON.stringify(updates));
   const { data, error } = await supabase.from("products").update(updates).eq("id", id).select().single();
   if (error) throw error;
   return data;

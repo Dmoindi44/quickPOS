@@ -648,17 +648,18 @@ function POSApp({ shop, role, user, onLock, onShopUpdate }) {
         new Promise((_,reject)=>setTimeout(()=>reject(new Error("timeout")),5000))
       ]);
       setSales(prev=>[saved,...prev]);
+      showToast(`Sale saved — ${fmt(total)}`);
+      // Decrement stock after sale saved — outside timeout race
       for (const item of cartSnapshot) {
         try {
-          // For container items, use the real product ID and weight-based qty
           const stockId = item.isContainer ? item.productId : item.pid;
           const deductQty = item.isContainer ? (item.weight * item.qty) : item.qty;
           if (stockId && !stockId.includes("_")) {
             await decrementStock(stockId, deductQty);
+            setProducts(prev=>prev.map(pp=>pp.id===stockId?{...pp,stock:Math.max(0,pp.stock-deductQty)}:pp));
           }
         } catch(e) { console.error("Stock decrement failed:", e); }
       }
-      showToast(`Sale saved — ${fmt(total)}`);
     } catch(e) {
       addToQueue({ ...sale, shop_id: shop.id, items: cartSnapshot });
       setQueueCount(getQueue().length);
@@ -923,7 +924,12 @@ function POSView({ products, cart, setCart, onAddToCart, onCheckout, showToast, 
               : <div style={{fontSize:"28px", marginBottom:"6px"}}>📦</div>
             }
             <p style={{fontSize:"13px", fontWeight:"600", color:"#e2e8f0", marginBottom:"2px", lineHeight:"1.3"}}>{p.name}</p>
-            <p style={{fontSize:"14px", fontWeight:"800", color:"#818cf8"}}>{fmt(p.price)}</p>
+            {(!p.containers||p.containers.length===0) && <p style={{fontSize:"14px", fontWeight:"800", color:"#818cf8"}}>{fmt(p.price)}</p>}
+            {p.containers&&p.containers.length>0 && (
+              <p style={{fontSize:"11px", color:"#818cf8", fontWeight:"700"}}>
+                {p.containers.length} size{p.containers.length>1?"s":""} • from {fmt(Math.min(...p.containers.map(c=>c.price)))}
+              </p>
+            )}
             <p style={{fontSize:"10px", color:"#475569", marginTop:"2px"}}>Stock: {p.fractional?(+p.stock).toFixed(2):p.stock}{p.unit?" "+p.unit:""}</p>
           </button>
         ))}
@@ -1250,7 +1256,18 @@ function InventoryView({ products, setProducts, onAdd, onDelete, updateProduct: 
                   {p.stock}
                 </button>
                 <button onClick={()=>adjust(p.id,1)} style={{width:"28px", height:"28px", background:"#334155", border:"none", borderRadius:"50%", color:"#e2e8f0", cursor:"pointer", fontFamily:"inherit", fontSize:"16px"}}>+</button>
-                <button onClick={()=>{setEditProduct(p);document.body.classList.add("checkout-open");}}
+                <button onClick={async()=>{
+                  document.body.classList.add("checkout-open");
+                  try {
+                    const { data, error } = await supabase.from("products").select("*").eq("id", p.id).single();
+                    console.log("fresh product:", JSON.stringify(data));
+                    console.log("error:", error);
+                    setEditProduct(data || p);
+                  } catch(e) {
+                    console.log("catch:", e);
+                    setEditProduct(p);
+                  }
+                }}
                   style={{width:"28px", height:"28px", background:"transparent", border:"none", color:"#818cf8", cursor:"pointer", fontFamily:"inherit", fontSize:"16px"}}>✏️</button>
                 <button onClick={()=>{ if(confirm("Delete this product?")) onDelete(p.id); }}
                   style={{width:"28px", height:"28px", background:"transparent", border:"none", color:"#475569", cursor:"pointer", fontFamily:"inherit", fontSize:"16px"}}>🗑</button>
@@ -1264,6 +1281,7 @@ function InventoryView({ products, setProducts, onAdd, onDelete, updateProduct: 
       {/* Edit Product Overlay */}
       {editProduct && (
         <EditProductOverlay
+          key={editProduct.id + JSON.stringify(editProduct.containers)}
           product={editProduct}
           categories={categories}
           onSave={async (updates, photoFile) => {
@@ -1728,6 +1746,15 @@ function SettingsView({ shop, onShopUpdate, showToast, onSignOut, categories, se
       {tab==="account" && (
         <div style={{background:"rgba(15,23,42,0.7)", borderRadius:"14px", padding:"16px", display:"flex", flexDirection:"column", gap:"12px"}}>
           <p style={{fontSize:"14px", fontWeight:"700"}}>Account</p>
+          <button onClick={async()=>{
+              if(!confirm("Remove staff PIN? Staff will no longer be able to log in.")) return;
+              const updated = await updateShop(shop.id, { staff_pin_hash: null });
+              onShopUpdate(updated);
+              showToast("Staff PIN removed");
+            }}
+            style={{padding:"12px", borderRadius:"10px", background:"#7f1d1d33", border:"1px solid #7f1d1d", color:"#f87171", fontSize:"14px", fontWeight:"700", cursor:"pointer", fontFamily:"inherit"}}>
+            🗑 Remove Staff PIN
+          </button>
           <button onClick={onSignOut}
             style={{padding:"14px", borderRadius:"10px", background:"#7f1d1d", border:"none", color:"#fca5a5", fontSize:"14px", fontWeight:"700", cursor:"pointer", fontFamily:"inherit"}}>
             Sign Out
@@ -1798,7 +1825,7 @@ function EditProductOverlay({ product, categories, onSave, onClose }) {
   const [photoFile,    setPhotoFile   ] = useState(null);
   const [photoPreview, setPhotoPreview] = useState(product.photo_url||null);
   const set = (k,v) => setForm(p=>({...p,[k]:v}));
-  const valid = form.name.trim() && parseFloat(form.price)>0 && parseFloat(form.stock)>=0 && parseFloat(form.threshold)>=0;
+  const valid = form.name.trim() && (parseFloat(form.price)>0 || (form.containers||[]).length>0) && parseFloat(form.stock)>=0 && parseFloat(form.threshold)>=0;
 
   const handlePhoto = (e) => {
     const file = e.target.files[0];
@@ -1810,7 +1837,7 @@ function EditProductOverlay({ product, categories, onSave, onClose }) {
   const handleSave = async () => {
     setSaveError(""); setSaving(true);
     try {
-      await onSave({ ...form, price:parseFloat(form.price), stock:parseFloat(form.stock)||0, threshold:parseFloat(form.threshold)||5 }, photoFile);
+      await onSave({ ...form, price:parseFloat(form.price)||0, stock:parseFloat(form.stock)||0, threshold:parseFloat(form.threshold)||5 }, photoFile);
     } catch(e) {
       setSaveError(e.message || "Failed to save.");
       console.error("editProduct error:", e);
@@ -1882,34 +1909,49 @@ function EditProductOverlay({ product, categories, onSave, onClose }) {
               ))}
             </div>
           </div>
-          {/* Fractional toggle */}
-          <div style={{background:"#0f172a", borderRadius:"12px", padding:"14px", display:"flex", alignItems:"center", justifyContent:"space-between"}}>
-            <div>
-              <p style={{fontSize:"13px", fontWeight:"700", color:"#e2e8f0", margin:"0 0 2px"}}>Fractional Selling</p>
-              <p style={{fontSize:"11px", color:"#64748b", margin:0}}>Allow selling by weight or volume</p>
-            </div>
-            <button onClick={()=>set("fractional",!form.fractional)}
-              style={{width:"44px", height:"24px", borderRadius:"100px", border:"none", cursor:"pointer", position:"relative",
-                background:form.fractional?"#4f46e5":"#334155", transition:"background 0.2s"}}>
-              <span style={{position:"absolute", top:"3px", left:form.fractional?"23px":"3px", width:"18px", height:"18px", background:"white", borderRadius:"50%", transition:"left 0.2s", display:"block"}} />
-            </button>
-          </div>
-          {/* Container management */}
+          {/* Selling Mode — mutually exclusive */}
           <div>
-            <label style={{fontSize:"11px", color:"#64748b", fontWeight:"600", textTransform:"uppercase", letterSpacing:"0.5px", display:"block", marginBottom:"8px"}}>
-              Containers <span style={{color:"#475569", textTransform:"none", fontWeight:"400"}}>(optional — for products sold in containers)</span>
-            </label>
-            {(form.containers||[]).map((c,i)=>(
-              <div key={i} style={{display:"flex", alignItems:"center", gap:"8px", marginBottom:"8px", background:"#0f172a", borderRadius:"10px", padding:"10px 12px"}}>
-                <div style={{flex:1}}>
-                  <p style={{fontSize:"13px", fontWeight:"700", color:"#e2e8f0", margin:"0 0 2px"}}>🪣 {c.name}</p>
-                  <p style={{fontSize:"11px", color:"#64748b", margin:0}}>{c.weight} {c.unit||"kg"} — {fmt(c.price)}</p>
-                </div>
-                <button onClick={()=>set("containers",(form.containers||[]).filter((_,j)=>j!==i))}
-                  style={{background:"none", border:"none", color:"#f87171", cursor:"pointer", fontFamily:"inherit", fontSize:"18px"}}>🗑</button>
+            <label style={{fontSize:"11px", color:"#64748b", fontWeight:"600", textTransform:"uppercase", letterSpacing:"0.5px", display:"block", marginBottom:"8px"}}>Selling Mode</label>
+            <div style={{display:"flex", gap:"8px", marginBottom:"12px"}}>
+              {[["normal","📦 Normal"],["fractional","⚖️ Fractional"],["container","🪣 Containers"]].map(([mode,label])=>{
+                const active =
+                  (mode==="fractional" && form.fractional) ||
+                  (mode==="container" && !form.fractional && (form.containers||[]).length>0) ||
+                  (mode==="normal" && !form.fractional && !(form.containers||[]).length);
+                return (
+                  <button key={mode} onClick={()=>{
+                    if(mode==="normal"){ set("fractional",false); set("containers",[]); }
+                    if(mode==="fractional"){ set("fractional",true); set("containers",[]); }
+                    if(mode==="container"){ set("fractional",false); }
+                  }}
+                    style={{flex:1, padding:"8px", borderRadius:"10px", border:"none", cursor:"pointer", fontFamily:"inherit", fontSize:"11px", fontWeight:"700",
+                      background:active?"#4f46e5":"#334155", color:active?"white":"#94a3b8"}}>
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+            {form.fractional && (
+              <p style={{fontSize:"12px", color:"#64748b", margin:"0 0 8px"}}>Cashier picks qty in 0.25 steps. Price is per unit.</p>
+            )}
+            {!form.fractional && (
+              <div>
+                {(form.containers||[]).length>0 && (
+                  <p style={{fontSize:"12px", color:"#fbbf24", margin:"0 0 8px"}}>⚠ Base price ignored — container prices used instead.</p>
+                )}
+                {(form.containers||[]).map((c,i)=>(
+                  <div key={i} style={{display:"flex", alignItems:"center", gap:"8px", marginBottom:"8px", background:"#0f172a", borderRadius:"10px", padding:"10px 12px"}}>
+                    <div style={{flex:1}}>
+                      <p style={{fontSize:"13px", fontWeight:"700", color:"#e2e8f0", margin:"0 0 2px"}}>🪣 {c.name}</p>
+                      <p style={{fontSize:"11px", color:"#64748b", margin:0}}>{c.weight} {c.unit||"kg"} — {fmt(c.price)}</p>
+                    </div>
+                    <button onClick={()=>set("containers",(form.containers||[]).filter((_,j)=>j!==i))}
+                      style={{background:"none", border:"none", color:"#f87171", cursor:"pointer", fontFamily:"inherit", fontSize:"18px"}}>🗑</button>
+                  </div>
+                ))}
+                <ContainerForm onAdd={(c)=>set("containers",[...(form.containers||[]),c])} />
               </div>
-            ))}
-            <ContainerForm onAdd={(c)=>set("containers",[...(form.containers||[]),c])} />
+            )}
           </div>
 
           {saveError && <p style={{color:"#f87171", fontSize:"13px", background:"rgba(239,68,68,0.1)", padding:"10px 12px", borderRadius:"10px"}}>{saveError}</p>}
@@ -1935,7 +1977,7 @@ function AddProductOverlay({ onSave, onClose, categories }) {
   const [photoFile,    setPhotoFile   ] = useState(null);
   const [photoPreview, setPhotoPreview] = useState(null);
   const set   = (k,v) => setForm(p=>({...p,[k]:v}));
-  const valid = form.name.trim() && parseFloat(form.price)>0 && parseFloat(form.stock)>=0 && parseFloat(form.threshold)>=0;
+  const valid = form.name.trim() && (parseFloat(form.price)>0 || (form.containers||[]).length>0) && parseFloat(form.stock)>=0 && parseFloat(form.threshold)>=0;
 
   const handlePhoto = (e) => {
     const file = e.target.files[0];
@@ -1948,7 +1990,7 @@ function AddProductOverlay({ onSave, onClose, categories }) {
     setSaveError("");
     setSaving(true);
     try {
-      await onSave({ ...form, price:parseFloat(form.price), stock:parseFloat(form.stock)||0, threshold:parseFloat(form.threshold)||5 }, photoFile);
+      await onSave({ ...form, price:parseFloat(form.price)||0, stock:parseFloat(form.stock)||0, threshold:parseFloat(form.threshold)||5 }, photoFile);
     } catch(e) {
       setSaveError(e.message || "Failed to save. Check your connection.");
       console.error("addProduct error:", e);
@@ -1998,17 +2040,49 @@ function AddProductOverlay({ onSave, onClose, categories }) {
             </div>
           ))}
 
-          {/* Fractional selling toggle */}
-          <div style={{background:"#0f172a", borderRadius:"12px", padding:"14px", display:"flex", alignItems:"center", justifyContent:"space-between"}}>
-            <div>
-              <p style={{fontSize:"13px", fontWeight:"700", color:"#e2e8f0", margin:"0 0 2px"}}>Fractional Selling</p>
-              <p style={{fontSize:"11px", color:"#64748b", margin:0}}>Allow selling by weight or volume (e.g. 0.5 kg)</p>
+          {/* Selling Mode — mutually exclusive */}
+          <div>
+            <label style={{fontSize:"11px", color:"#64748b", fontWeight:"600", textTransform:"uppercase", letterSpacing:"0.5px", display:"block", marginBottom:"8px"}}>Selling Mode</label>
+            <div style={{display:"flex", gap:"8px", marginBottom:"8px"}}>
+              {[["normal","📦 Normal"],["fractional","⚖️ Fractional"],["container","🪣 Containers"]].map(([mode,label])=>{
+                const active =
+                  (mode==="fractional" && form.fractional) ||
+                  (mode==="container" && !form.fractional && (form.containers||[]).length>0) ||
+                  (mode==="normal" && !form.fractional && !(form.containers||[]).length);
+                return (
+                  <button key={mode} onClick={()=>{
+                    if(mode==="normal"){ set("fractional",false); set("containers",[]); }
+                    if(mode==="fractional"){ set("fractional",true); set("containers",[]); }
+                    if(mode==="container"){ set("fractional",false); }
+                  }}
+                    style={{flex:1, padding:"8px", borderRadius:"10px", border:"none", cursor:"pointer", fontFamily:"inherit", fontSize:"11px", fontWeight:"700",
+                      background:active?"#4f46e5":"#334155", color:active?"white":"#94a3b8"}}>
+                    {label}
+                  </button>
+                );
+              })}
             </div>
-            <button onClick={()=>set("fractional",!form.fractional)}
-              style={{width:"44px", height:"24px", borderRadius:"100px", border:"none", cursor:"pointer", fontFamily:"inherit", position:"relative",
-                background:form.fractional?"#4f46e5":"#334155", transition:"background 0.2s"}}>
-              <span style={{position:"absolute", top:"3px", left:form.fractional?"23px":"3px", width:"18px", height:"18px", background:"white", borderRadius:"50%", transition:"left 0.2s", display:"block"}} />
-            </button>
+            {form.fractional && (
+              <p style={{fontSize:"12px", color:"#64748b", margin:"0 0 4px"}}>Cashier picks qty in 0.25 steps. Price is per unit.</p>
+            )}
+            {!form.fractional && (
+              <div>
+                {(form.containers||[]).length>0 && (
+                  <p style={{fontSize:"12px", color:"#fbbf24", margin:"0 0 8px"}}>⚠ Base price ignored — container prices used instead.</p>
+                )}
+                {(form.containers||[]).map((c,i)=>(
+                  <div key={i} style={{display:"flex", alignItems:"center", gap:"8px", marginBottom:"8px", background:"#0f172a", borderRadius:"10px", padding:"10px 12px"}}>
+                    <div style={{flex:1}}>
+                      <p style={{fontSize:"13px", fontWeight:"700", color:"#e2e8f0", margin:"0 0 2px"}}>🪣 {c.name}</p>
+                      <p style={{fontSize:"11px", color:"#64748b", margin:0}}>{c.weight} {c.unit||"kg"} — {fmt(c.price)}</p>
+                    </div>
+                    <button onClick={()=>set("containers",(form.containers||[]).filter((_,j)=>j!==i))}
+                      style={{background:"none", border:"none", color:"#f87171", cursor:"pointer", fontFamily:"inherit", fontSize:"18px"}}>🗑</button>
+                  </div>
+                ))}
+                <ContainerForm onAdd={(c)=>set("containers",[...(form.containers||[]),c])} />
+              </div>
+            )}
           </div>
           <div>
             <label style={{fontSize:"11px", color:"#64748b", fontWeight:"600", textTransform:"uppercase", letterSpacing:"0.5px", display:"block", marginBottom:"6px"}}>Category</label>
