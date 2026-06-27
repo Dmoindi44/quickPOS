@@ -1260,11 +1260,8 @@ function InventoryView({ products, setProducts, onAdd, onDelete, updateProduct: 
                   document.body.classList.add("checkout-open");
                   try {
                     const { data, error } = await supabase.from("products").select("*").eq("id", p.id).single();
-                    console.log("fresh product:", JSON.stringify(data));
-                    console.log("error:", error);
                     setEditProduct(data || p);
                   } catch(e) {
-                    console.log("catch:", e);
                     setEditProduct(p);
                   }
                 }}
@@ -1811,14 +1808,15 @@ function ContainerForm({ onAdd }) {
 function EditProductOverlay({ product, categories, onSave, onClose }) {
   const shopCats = categories || DEFAULT_CATEGORIES;
   const [form,         setForm        ] = useState({
-    name:      product.name      || "",
-    price:     product.price     || "",
-    barcode:   product.barcode   || "",
-    stock:     product.stock     || 0,
-    threshold: product.threshold || 5,
-    category:  product.category  || shopCats[0],
-    unit:      product.unit      || "",
-    fractional:product.fractional|| false,
+    name:       product.name       || "",
+    price:      product.price      || "",
+    barcode:    product.barcode    || "",
+    stock:      product.stock      || 0,
+    threshold:  product.threshold  || 5,
+    category:   product.category   || shopCats[0],
+    unit:       product.unit       || "",
+    fractional: product.fractional || false,
+    containers: product.containers || [],
   });
   const [saving,       setSaving      ] = useState(false);
   const [saveError,    setSaveError   ] = useState("");
