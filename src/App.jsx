@@ -199,11 +199,18 @@ export default function App() {
         setUser(null); setShop(null); setRole(null); setScreen("login");
         return;
       }
-      if (_e === "SIGNED_IN" || _e === "TOKEN_REFRESHED") {
+      if (_e === "TOKEN_REFRESHED") {
+        // Token refreshed silently — just update user, don't change screen
+        if (session) setUser(session.user);
+        return;
+      }
+      if (_e === "SIGNED_IN") {
+        // Only handle SIGNED_IN if we're on login/setup screen
+        // Ignore if user is already in the app (e.g. returning from camera)
         if (session) {
           setUser(session.user);
           const s = await getShopByOwner(session.user.id);
-          if (s) { setShop(s); setScreen("pin"); }
+          if (s) { setShop(s); setScreen(prev => prev === "login" || prev === "setup" ? "pin" : prev); }
           else setScreen("setup");
         }
       }
